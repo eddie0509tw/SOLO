@@ -44,10 +44,10 @@ class BuildDataset(torch.utils.data.Dataset):
         label = self.labels_data[index]
         mask = self.load_multi_h5py(self.masks_path, index,len(label))
         bbox = self.bboxes_data[index]
-        print(img.shape)
-        print(mask.shape)
-        print(label)
-        print(bbox)
+        # print(img.shape)
+        # print(mask.shape)
+        # print(len(label))
+        # print(bbox)
 
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
         # check flag
@@ -56,7 +56,7 @@ class BuildDataset(torch.utils.data.Dataset):
         return transed_img, label, transed_mask, transed_bbox
     
     def __len__(self):
-        return len(self.imgs_data)
+        return len(self.labels_data)
 
     # This function take care of the pre-process of img,mask,bbox
     # in the input mini-batch
@@ -75,17 +75,24 @@ class BuildDataset(torch.utils.data.Dataset):
         # mask = np.pad(mask, ((0,8),(0,0),(0,0)), 'constant', constant_values=0)
         # bbox = bbox * np.array([1, 1066/400, 800/300, 1066/400, 800/300]).reshape(1,5)
         img_ = Image.fromarray((img).astype('uint8').transpose(1, 2, 0))
-        mask_ = Image.fromarray((mask).astype('uint8').transpose(1, 2, 0))
+        # plt.imshow(img_)
+        # plt.savefig("img1.png")
+        if len(bbox) == 1:
+            mask_ = Image.fromarray((mask.squeeze(0)).astype('uint8'))
+        else:
+            mask_ = Image.fromarray((mask).astype('uint8').transpose(1, 2, 0))
         img_ = self.transform_img(img_)
         mask_ = self.transform_mask(mask_)
+        if len(bbox) == 1:
+            mask_ = mask_.unsqueeze(0)
         bbox_ = torch.tensor(bbox)
         bbox_ = bbox_ * torch.tensor([  800/300,1066/400 , 800/300,1066/400]).reshape(1,4) + torch.tensor([0, 11, 0, 11]).reshape(1,4) # bbox: x,y,x,y 
         # i = (img_*255).permute(1,2,0).numpy()
         # i = Image.fromarray((i).astype('uint8'))
         # plt.imshow(i)
         # plt.savefig("img2.png")
-        print(bbox_.shape[0])
-        print(mask_.squeeze(0).shape[0])
+        # print(bbox_.shape[0])
+        # print(mask_.squeeze(0).shape[0])
         # check flag
         assert img_.shape == (3, 800, 1088)
         assert bbox_.shape[0] == mask_.squeeze(0).shape[0]
@@ -122,10 +129,16 @@ class BuildDataLoader(torch.utils.data.DataLoader):
         # img: (bz, 3, 300, 400)
     def collect_fn(self, batch):
         # TODO: collect_fn
-        pass
+        imgs, labels, masks, bboxes = zip(*batch)
+        imgs = torch.stack(imgs, dim=0)
+        label_list = list(labels)
+        transed_mask_list = [mask.clone() for mask in masks]
+        trans_bbox_list = [bbox.clone() for bbox in bboxes]
+        
+        return imgs, label_list, transed_mask_list,trans_bbox_list
 
     def loader(self):
-        dataloader = DataLoader(self, batch_size=self.batch_size, shuffle=self.shuffle, num_workers=self.num_workers, collate_fn=self.collect_fn)
+        dataloader = DataLoader(self.dataset, batch_size=self.batch_size, shuffle=self.shuffle, num_workers=self.num_workers, collate_fn=self.collect_fn)
         return dataloader
 
 
@@ -142,14 +155,14 @@ if __name__ == '__main__':
 
     # build the dataset
     dataset = BuildDataset(paths)
-    print(dataset[3])
-    exit()
+    #print(dataset[0])
     
     ## Visualize debugging
     # --------------------------------------------
     # build the dataloader
     # set 20% of the dataset as the training data
     full_size = len(dataset)
+    print( full_size)
     train_size = int(full_size * 0.8)
     test_size = full_size - train_size
     # random split the dataset into training and testset
@@ -157,19 +170,34 @@ if __name__ == '__main__':
     torch.random.manual_seed(1)
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     # push the randomized training data into the dataloader
-
+    print(train_dataset[0])
     batch_size = 2
-    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     train_loader = train_build_loader.loader()
-    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     test_loader = test_build_loader.loader()
-
+    print("Finish building dataloader")
+    # print(len(train_loader))
+    # print(len(test_loader))
+    img, label, mask, bbox = next(iter(train_loader))
+    print(img.shape)
+    print(label)
+    print(mask[1].shape)
+    print(bbox[1].shape)
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(torch.cuda.is_available())
+    exit()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     for iter, data in enumerate(train_loader, 0):
-
+        print(len(data))
+        exit()
         img, label, mask, bbox = [data[i] for i in range(len(data))]
+        print(img.shape)
+        print(label)
+        print(mask[0].shape)
+        print(bbox[0].shape)
+        exit()
         # check flag
         assert img.shape == (batch_size, 3, 800, 1088)
         assert len(mask) == batch_size
