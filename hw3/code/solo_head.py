@@ -63,16 +63,106 @@ class SOLOHead(nn.Module):
         ## TODO initialize layers: stack intermediate layer and output layer
         # define groupnorm
         num_groups = 32
+        cat_chn0 = self.in_channels + 2
         # initial the two branch head modulelist
         self.cate_head = nn.ModuleList()
         self.ins_head = nn.ModuleList()
 
-        pass
+        for i in range(self.stacked_convs):
+            if i == 0:
+                self.cate_convs.append(
+                    nn.Sequential(
+                        nn.Conv2d(
+                                self.in_channels,
+                                self.seg_feat_channels,
+                                3,
+                                stride=1,
+                                padding=1,
+                                bias= False),
+                        nn.GroupNorm(num_channels=self.seg_feat_channels,
+                                    num_groups=32),           
+                        nn.ReLU(inplace=True)
+                    )
+                )
+                self.ins_convs.append(
+                    nn.Sequential(
+                        nn.Conv2d(
+                                cat_chn0,
+                                self.seg_feat_channels,
+                                3,
+                                stride=1,
+                                padding=1,
+                                bias= False),
+                        nn.GroupNorm(num_channels=self.seg_feat_channels,
+                                    num_groups=32),           
+                        nn.ReLU(inplace=True)
+                    )
+                )
+
+            else:
+                self.cate_convs.append(
+                    nn.Sequential(
+                        nn.Conv2d(
+                                self.seg_feat_channels,
+                                self.seg_feat_channels,
+                                3,
+                                stride=1,
+                                padding=1,
+                                bias= False),
+                        nn.GroupNorm(num_channels=self.seg_feat_channels,
+                                    num_groups=32),           
+                        nn.ReLU(inplace=True)
+                    )
+                )
+                self.ins_convs.append(
+                    nn.Sequential(
+                        nn.Conv2d(
+                                self.seg_feat_channels,
+                                self.seg_feat_channels,
+                                3,
+                                stride=1,
+                                padding=1,
+                                bias= False),
+                        nn.GroupNorm(num_channels=self.seg_feat_channels,
+                                    num_groups=32),           
+                        nn.ReLU(inplace=True)
+                    )
+                )
+        #end of for loop
+
+        self.solo_ins_out = nn.ModuleList()
+        for num_grid in self.seg_num_grids:
+            self.solo_ins_out.append(
+                nn.Conv2d(self.seg_feat_channels, num_grid**2, 1)
+            )
+        self.solo_cate_out = nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, 3, padding=1)
 
     # This function initialize weights for head network
     def _init_weights(self):
         ## TODO: initialize the weights
-        pass
+        for m in self.ins_convs:
+            if isinstance(m, nn.Sequential):
+                for con in m:
+                    if isinstance(con, nn.Conv2d):
+                        nn.init.normal_(m.weight, mean=0, std=0.01)
+
+        for m in self.cate_convs:
+            if isinstance(m, nn.Sequential):
+                for con in m:
+                    if isinstance(con, nn.Conv2d):
+                        nn.init.normal_(m.weight, mean=0, std=0.01)
+
+
+        bias_ = float(-np.log((1 - 0.01) / 0.01))
+        for m in self.solo_ins_out: 
+            nn.init.normal_(m.weight, mean=0, std=0.01)
+            if hasattr(m, 'bias') and m.bias is not None:
+                nn.init.constant_(m.bias, bias_)
+
+        nn.init.normal_(self.solo_cate_out.weight, mean=0, std=0.01)
+        if hasattr(self.solo_cate_out, 'bias') and self.solo_cate_out.bias is not None:
+            nn.init.constant_(self.solo_cate_out.bias, bias_)
+
 
 
     # Forward function should forward every levels in the FPN.
@@ -107,7 +197,19 @@ class SOLOHead(nn.Module):
     # Output:
     # new_fpn_list, list, len(FPN), stride[8,8,16,32,32]
     def NewFPN(self, fpn_feat_list):
-        pass
+        f1 = F.interpolate(fpn_feat_list[0], 
+                            scale_factor=0.5,
+                            mode='bilinear', 
+                            align_corners=False, 
+                            recompute_scale_factor=True)
+        f2 = fpn_feat_list[1]
+        f3 = fpn_feat_list[2]
+        f4 = fpn_feat_list[3]
+        f5 = F.interpolate(fpn_feat_list[4], 
+                           size=fpn_feat_list[3].shape[-2:], 
+                           mode='bilinear', 
+                           align_corners=False)
+        return f1,f2,f3,f4,f5
 
 
     # This function forward a single level of fpn_featmap through the network
@@ -139,6 +241,8 @@ class SOLOHead(nn.Module):
         if eval == False:
             assert cate_pred.shape[1:] == (3, num_grid, num_grid)
             assert ins_pred.shape[1:] == (num_grid**2, fpn_feat.shape[2]*2, fpn_feat.shape[3]*2)
+
+
         else:
             pass
         return cate_pred, ins_pred

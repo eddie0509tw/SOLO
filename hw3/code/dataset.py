@@ -177,26 +177,23 @@ if __name__ == '__main__':
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     test_loader = test_build_loader.loader()
     print("Finish building dataloader")
-    # print(len(train_loader))
-    # print(len(test_loader))
-    img, label, mask, bbox = next(iter(train_loader))
-    print(img.shape)
-    print(label)
-    print(mask[1].shape)
-    print(bbox[1].shape)
+    print(len(train_loader))
+    print(len(test_loader))
+    # img, label, mask, bbox = next(iter(train_loader))
+    # print(img.shape)
+    # print(label)
+    # print(mask[1].shape)
+    # print(bbox[1].shape)
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
-    print(torch.cuda.is_available())
-    exit()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     for iter, data in enumerate(train_loader, 0):
-        print(len(data))
-        exit()
         img, label, mask, bbox = [data[i] for i in range(len(data))]
         print(img.shape)
         print(label)
-        print(mask[0].shape)
-        print(bbox[0].shape)
+        print(mask[0].shape,mask[1].shape)
+        print(bbox[0].shape,bbox[1].shape)
         exit()
         # check flag
         assert img.shape == (batch_size, 3, 800, 1088)
