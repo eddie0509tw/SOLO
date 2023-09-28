@@ -198,17 +198,14 @@ class SOLOHead(nn.Module):
     # new_fpn_list, list, len(FPN), stride[8,8,16,32,32]
     def NewFPN(self, fpn_feat_list):
         f1 = F.interpolate(fpn_feat_list[0], 
-                            scale_factor=0.5,
-                            mode='bilinear', 
-                            align_corners=False, 
-                            recompute_scale_factor=True)
+                            size=fpn_feat_list[1].shape[-2:],
+                            mode='bilinear')
         f2 = fpn_feat_list[1]
         f3 = fpn_feat_list[2]
         f4 = fpn_feat_list[3]
         f5 = F.interpolate(fpn_feat_list[4], 
                            size=fpn_feat_list[3].shape[-2:], 
-                           mode='bilinear', 
-                           align_corners=False)
+                           mode='bilinear')
         return f1,f2,f3,f4,f5
 
 
@@ -230,10 +227,51 @@ class SOLOHead(nn.Module):
         cate_pred = fpn_feat
         ins_pred = fpn_feat
         num_grid = self.seg_num_grids[idx]  # current level grid
+        batch_size = fpn_feat.shape[0]
+        # ins_pred
+
+        x_idx = torch.arange(0, fpn_feat.shape[-1], 1, device=fpn_feat.device)
+        y_idx = torch.arange(0, fpn_feat.shape[-2], 1, device=fpn_feat.device)
+        #   normalize x,y indices to 1 -1
+        x_min = x_idx.min().item()
+        x_max = x_idx.max().item()
+        x_idx = -1 + 2 * (x_idx - x_min) / (x_max - x_min)
+
+        y_min = y_idx.min().item()
+        y_max = y_idx.max().item()
+        y_idx = -1 + 2 * (y_idx - y_min) / (y_max - y_min)
+
+        y, x = torch.meshgrid(y_idx, x_idx)
+
+        y = y.expand([batch_size, 1, -1, -1])
+        x = x.expand([batch_size, 1, -1, -1])
+
+        ins_pred = torch.cat([ins_pred, x, y], dim=1)
+
+        for layer in self.ins_convs:
+            ins_pred = layer(ins_pred)
+
+        ins_feat = F.interpolate(ins_feat, scale_factor=2,
+                                  mode='bilinear', 
+                                  align_corners=False, 
+                                  recompute_scale_factor=True)
+        
+        ins_pred = self.solo_ins_list[idx](ins_pred)
+
+        # cate_pred
+        # self.seg_num_grids=[40, 36, 24, 16, 12]
+        cate_pred = F.interpolate(cate_pred, 
+                                  size = self.seg_num_grids[idx],
+                                  mode='bilinear')
+        for layer in self.cate_convs:
+            cate_pred = layer(cate_pred)
+
+        cate_pred = self.solo_cate_out(cate_pred)
 
         # in inference time, upsample the pred to (ori image size/4)
         if eval == True:
             ## TODO resize ins_pred
+            ins_pred = F.interpolate(ins_pred.sigmoid(), size=upsample_shape, mode='bilinear')
 
             cate_pred = self.points_nms(cate_pred).permute(0,2,3,1)
 
@@ -241,8 +279,6 @@ class SOLOHead(nn.Module):
         if eval == False:
             assert cate_pred.shape[1:] == (3, num_grid, num_grid)
             assert ins_pred.shape[1:] == (num_grid**2, fpn_feat.shape[2]*2, fpn_feat.shape[3]*2)
-
-
         else:
             pass
         return cate_pred, ins_pred
