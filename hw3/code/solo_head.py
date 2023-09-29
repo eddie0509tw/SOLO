@@ -185,6 +185,10 @@ class SOLOHead(nn.Module):
         # TODO: use MultiApply to compute cate_pred_list, ins_pred_list. Parallel w.r.t. feature level.
         assert len(new_fpn_list) == len(self.seg_num_grids)
 
+        num_of_levels = list(range(len(self.seg_num_grids)))
+        cate_pred_list, ins_pred_list =  self.MultiApply(self.forward_single, new_fpn_list,
+                                                       num_of_levels,
+                                                       eval=eval, upsample_shape=quart_shape)
         # assert cate_pred_list[1].shape[1] == self.cate_out_channels
         assert ins_pred_list[1].shape[1] == self.seg_num_grids[1]**2
         assert cate_pred_list[1].shape[2] == self.seg_num_grids[1]
