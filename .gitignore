@@ -16,3 +16,4 @@ __pycache__/
 *.pyd
 
 # Ignore virtual environment folders (e.g., for Python virtual environments)
+*.png
