@@ -50,7 +50,7 @@ class SOLOHead(nn.Module):
         # check flag
         assert len(self.ins_head) == self.stacked_convs
         assert len(self.cate_head) == self.stacked_convs
-        assert len(self.ins_out_list) == len(self.strides)
+        #assert len(self.ins_out_list) == len(self.strides)
         pass
 
     # This function build network layer for cate and ins branch
@@ -70,7 +70,7 @@ class SOLOHead(nn.Module):
 
         for i in range(self.stacked_convs):
             if i == 0:
-                self.cate_convs.append(
+                self.cate_head.append(
                     nn.Sequential(
                         nn.Conv2d(
                                 self.in_channels,
@@ -84,7 +84,7 @@ class SOLOHead(nn.Module):
                         nn.ReLU(inplace=True)
                     )
                 )
-                self.ins_convs.append(
+                self.ins_head.append(
                     nn.Sequential(
                         nn.Conv2d(
                                 cat_chn0,
@@ -100,7 +100,7 @@ class SOLOHead(nn.Module):
                 )
 
             else:
-                self.cate_convs.append(
+                self.cate_head.append(
                     nn.Sequential(
                         nn.Conv2d(
                                 self.seg_feat_channels,
@@ -114,7 +114,7 @@ class SOLOHead(nn.Module):
                         nn.ReLU(inplace=True)
                     )
                 )
-                self.ins_convs.append(
+                self.ins_head.append(
                     nn.Sequential(
                         nn.Conv2d(
                                 self.seg_feat_channels,
@@ -140,17 +140,17 @@ class SOLOHead(nn.Module):
     # This function initialize weights for head network
     def _init_weights(self):
         ## TODO: initialize the weights
-        for m in self.ins_convs:
+        for m in self.ins_head:
             if isinstance(m, nn.Sequential):
                 for con in m:
                     if isinstance(con, nn.Conv2d):
-                        nn.init.normal_(m.weight, mean=0, std=0.01)
+                        nn.init.normal_(con.weight, mean=0, std=0.01)
 
-        for m in self.cate_convs:
+        for m in self.cate_head:
             if isinstance(m, nn.Sequential):
                 for con in m:
                     if isinstance(con, nn.Conv2d):
-                        nn.init.normal_(m.weight, mean=0, std=0.01)
+                        nn.init.normal_(con.weight, mean=0, std=0.01)
 
 
         bias_ = float(-np.log((1 - 0.01) / 0.01))
@@ -186,7 +186,7 @@ class SOLOHead(nn.Module):
         assert len(new_fpn_list) == len(self.seg_num_grids)
 
         num_of_levels = list(range(len(self.seg_num_grids)))
-        cate_pred_list, ins_pred_list =  self.MultiApply(self.forward_single, new_fpn_list,
+        cate_pred_list, ins_pred_list =  self.MultiApply(self.forward_single_level, new_fpn_list,
                                                        num_of_levels,
                                                        eval=eval, upsample_shape=quart_shape)
         # assert cate_pred_list[1].shape[1] == self.cate_out_channels
@@ -252,22 +252,22 @@ class SOLOHead(nn.Module):
 
         ins_pred = torch.cat([ins_pred, x, y], dim=1)
 
-        for layer in self.ins_convs:
+        for layer in self.ins_head:
             ins_pred = layer(ins_pred)
         # scale the feature map into 2H 2W
-        ins_feat = F.interpolate(ins_feat, scale_factor=2,
+        ins_pred = F.interpolate(ins_pred, scale_factor=2,
                                   mode='bilinear', 
                                   align_corners=False, 
                                   recompute_scale_factor=True)
         
-        ins_pred = self.solo_ins_list[idx](ins_pred)
+        ins_pred = self.solo_ins_out[idx](ins_pred)
 
         # cate_pred
         # self.seg_num_grids=[40, 36, 24, 16, 12]
         cate_pred = F.interpolate(cate_pred, 
                                   size = self.seg_num_grids[idx],
                                   mode='bilinear')
-        for layer in self.cate_convs:
+        for layer in self.cate_head:
             cate_pred = layer(cate_pred)
 
         cate_pred = self.solo_cate_out(cate_pred)
@@ -364,15 +364,15 @@ class SOLOHead(nn.Module):
         # remember, you want to construct target of the same resolution as prediction output in training
         featmap_sizes = [featmap.size()[-2:] for featmap in ins_pred_list]
         ins_gts_list, ins_ind_gts_list, cate_gts_list = self.MultiApply(
-            self.solo_target_single,
+            self.targer_single_img,
             gt_bbox_list,
             gt_label_list,
             gt_mask_list,
             featmap_sizes=featmap_sizes)
         # check flag
-        assert ins_gts_list[0][1].shape = (self.seg_num_grids[1]**2, 200, 272)
-        assert ins_ind_gts_list[0][1].shape = (self.seg_num_grids[1]**2,)
-        assert cate_gts_list[0][1].shape = (self.seg_num_grids[1], self.seg_num_grids[1])
+        assert ins_gts_list[0][1].shape == (self.seg_num_grids[1]**2, 200, 272)
+        assert ins_ind_gts_list[0][1].shape == (self.seg_num_grids[1]**2,)
+        assert cate_gts_list[0][1].shape == (self.seg_num_grids[1], self.seg_num_grids[1])
 
         return ins_gts_list, ins_ind_gts_list, cate_gts_list
     # -----------------------------------
@@ -563,10 +563,12 @@ class SOLOHead(nn.Module):
 from backbone import *
 if __name__ == '__main__':
     # file path and make a list
-    imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
-    bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device( "cpu")
+    imgs_path = '../data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = "../data/hw3_mycocodata_labels_comp_zlib.npy"
+    bboxes_path = "../data/hw3_mycocodata_bboxes_comp_zlib.npy"
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     # load the data into data.Dataset
     dataset = BuildDataset(paths)
