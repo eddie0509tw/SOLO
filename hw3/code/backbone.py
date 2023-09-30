@@ -1,6 +1,7 @@
 import torchvision
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 
 def Resnet50Backbone(checkpoint_file=None, device="cpu", eval=True):
@@ -39,22 +40,33 @@ if __name__ == '__main__':
 
     # print(a)
     # print(b)
-    x_idx = torch.arange(0, 4, 1)
-    print(x_idx)
-    x_min = x_idx.min().item()
-    x_max = x_idx.max().item()
-    x_idx = -1 + 2 * (x_idx - x_min) / (x_max - x_min)
-    print(x_idx)
+    # x_idx = torch.arange(0, 4, 1)
+    # print(x_idx)
+    # x_min = x_idx.min().item()
+    # x_max = x_idx.max().item()
+    # x_idx = -1 + 2 * (x_idx - x_min) / (x_max - x_min)
+    # print(x_idx)
 
 
 
-    ins_feat = torch.randn(3, 4, 5)  # Example shape
+    # ins_feat = torch.randn(3, 4, 5)  # Example shape
 
-    # Create a linspace tensor
-    x_range = torch.linspace(-1, 1, ins_feat.shape[-1], device=ins_feat.device)
-    y_range = torch.linspace(-1, 1, ins_feat.shape[-2], device=ins_feat.device)
-    print(x_range)
-    print(y_range)
+    # # Create a linspace tensor
+    # x_range = torch.linspace(-1, 1, ins_feat.shape[-1], device=ins_feat.device)
+    # y_range = torch.linspace(-1, 1, ins_feat.shape[-2], device=ins_feat.device)
+    # print(x_range)
+    # print(y_range)
+    a = torch.tensor([[1.2,2.54,3],[4,5.3,6]])
+    top = torch.tensor([0,1])
+    down = torch.tensor([1,2])
+    print(int(2.9))
+    k = torch.where(a>3,0,a)
+    print(k[top:down,:])
+    # area = torch.randn(3, 1) > 0.4
+    # print(area)
+    # print(area.nonzero())
+    # print(torch.nonzero(area).squeeze(1))
+    # print(area.nonzero().flatten())
     # y, x = torch.meshgrid(y_range, x_range)
     # print(y)
     # y = y.expand([ins_feat.shape[0], 1, -1, -1])

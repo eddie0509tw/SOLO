@@ -254,7 +254,7 @@ class SOLOHead(nn.Module):
 
         for layer in self.ins_convs:
             ins_pred = layer(ins_pred)
-
+        # scale the feature map into 2H 2W
         ins_feat = F.interpolate(ins_feat, scale_factor=2,
                                   mode='bilinear', 
                                   align_corners=False, 
@@ -395,6 +395,76 @@ class SOLOHead(nn.Module):
         cate_label_list = []
 
 
+        # The area of sqrt(w*h) of each object for examine which range to fit
+        gt_area = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (
+                gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
+        
+        for (lower_bound, upper_bound), stride, featmap_size, num_grid \
+                in zip(self.scale_ranges, self.strides, featmap_sizes, self.seg_num_grids):
+            # initial the output tensor for each featmap
+            ins_label = torch.zeros((num_grid**2, featmap_size[0]*2, featmap_size[1]*2),dtype=torch.uint8, device=device)
+            ins_ind_label = torch.zeros((num_grid**2,),dtype=torch.bool, device=device)
+            cate_label = torch.zeros((num_grid, num_grid),dtype=torch.int64, device=device)
+
+            indices = (gt_area >= lower_bound) & (gt_area <= upper_bound)
+            indices = torch.nonzero(indices)
+            if indices.size()[0] == 0:
+                ins_label_list.append(ins_label)
+                cate_label_list.append(cate_label)
+                ins_ind_label_list.append(ins_ind_label)
+                continue
+            # select m objs that lies in this scale range
+            gt_bboxes = gt_bboxes_raw[indices,...]
+            gt_labels = gt_labels_raw[indices]
+            gt_masks = gt_masks_raw[indices,...]
+
+            scale_w = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * self.epsilon # the region we're going to consider
+            scale_h = (gt_bboxes[:, 3] - gt_bboxes[:, 1]) * self.epsilon
+
+            center_x, center_y = (gt_bboxes[:, 2] + gt_bboxes[:, 0]) / 2, (gt_bboxes[:, 3] + gt_bboxes[:, 1]) / 2
+
+            output_size = (featmap_sizes[0][0] * 4, featmap_sizes[0][1] * 4) # 800, 1088
+
+            coord_x = torch.floor(center_x / output_size[1]) * num_grid # rescale relative to the output size and count which grid it belongs to
+            coord_y = torch.floor(center_y / output_size[0]) * num_grid
+
+            # left, top, right, down
+            top_box = torch.floor(((center_x - scale_w * 0.5) / output_size[0]) * num_grid)
+            down_box = torch.floor(((center_x + scale_w * 0.5) / output_size[0]) * num_grid)
+            left_box = torch.floor(((center_y - scale_h * 0.5) / output_size[1]) * num_grid)
+            right_box = torch.floor(((center_y + scale_h * 0.5) / output_size[1]) * num_grid)
+            top_box = torch.where(top_box < 0, torch.zeros_like(top_box), top_box)
+            down_box = torch.where(down_box > num_grid - 1, torch.ones_like(down_box) * (num_grid - 1), down_box)
+            left_box = torch.where(left_box < 0, torch.zeros_like(left_box), left_box)
+            right_box = torch.where(right_box > num_grid - 1, torch.ones_like(right_box) * (num_grid - 1), right_box)
+
+            
+            top = torch.where(top_box > (coord_y - 1), top_box, torch.ones_like(coord_y - 1) * (coord_y - 1))
+            down = torch.where(down_box < (coord_y + 1), down_box, torch.ones_like(coord_y + 1) * (coord_y + 1))
+            left = torch.where(left_box > (coord_x - 1), left_box, torch.ones_like(coord_x - 1) * (coord_x - 1))
+            right = torch.where(right_box < (coord_x + 1), right_box, torch.ones_like(coord_x + 1) * (coord_x + 1))
+
+            num_of_objs = gt_bboxes.shape[0]
+            scale = 2 / stride
+            for i in range(num_of_objs):
+                cate_label[top[i]:(down+1)[i], left:(right+1)[i]] = gt_labels[i]
+
+                seg_mask = gt_masks[i]
+                h, w = seg_mask[:2]
+                new_w, new_h = int(w * float(scale) + 0.5), int(h * float(scale) + 0.5)
+                seg_mask = cv2.resize(seg_mask, (new_w, new_h),  
+                                      interpolation=cv2.INTER_LINEAR)
+                seg_mask = torch.from_numpy(seg_mask).to(device=device)
+                for i in range(top, down+1):
+                    for j in range(left, right+1):
+                        label = int(i * num_grid + j)
+                        ins_label[label, :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
+                        ins_ind_label[label] = True
+
+            ins_label_list.append(ins_label)
+            cate_label_list.append(cate_label)
+            ins_ind_label_list.append(ins_ind_label)
+                
         # check flag
         assert ins_label_list[1].shape == (1296,200,272)
         assert ins_ind_label_list[1].shape == (1296,)
