@@ -10,6 +10,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import cv2
 from PIL import Image
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.ticker import NullLocator
+import os
+
 class BuildDataset(torch.utils.data.Dataset):
     def __init__(self, path):
         # TODO: load dataset, make mask list
@@ -46,10 +51,12 @@ class BuildDataset(torch.utils.data.Dataset):
         bbox = self.bboxes_data[index]
         # print(img.shape)
         # print(mask.shape)
-        # print(len(label))
-        # print(bbox)
+        # # print(len(label))
+        # print(bbox.shape)
 
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
+        print(transed_bbox.shape)
+        print(transed_mask.shape)
         # check flag
         assert transed_img.shape == (3, 800, 1088)
         assert transed_bbox.shape[0] == transed_mask.shape[0]
@@ -65,38 +72,59 @@ class BuildDataset(torch.utils.data.Dataset):
         # mask: (n_box, 300, 400)
         # bbox: n_box*4
     def pre_process_batch(self, img, mask, bbox):
-        # TODO: image preprocess
-        # img = cv2.resize(img, (3,800, 1066))
-        # mask = cv2.resize(mask, (800, 1066))
-        # img = img/255.0
-        # print(img.shape)
-        # img = (img - np.array([0.485, 0.456, 0.406]).reshape(3,1,1))/np.array([0.229, 0.224, 0.225]).reshape(3,1,1)
-        # img = np.pad(img, ((0,8),(0,0),(0,0)), 'constant', constant_values=0)
-        # mask = np.pad(mask, ((0,8),(0,0),(0,0)), 'constant', constant_values=0)
-        # bbox = bbox * np.array([1, 1066/400, 800/300, 1066/400, 800/300]).reshape(1,5)
+        # The input mask has shape (n_obj, 800, 1088), so we need to process each object's mask separately.
         img_ = Image.fromarray((img).astype('uint8').transpose(1, 2, 0))
-        # plt.imshow(img_)
-        # plt.savefig("img1.png")
-        if len(bbox) == 1:
-            mask_ = Image.fromarray((mask.squeeze(0)).astype('uint8'))
-        else:
-            mask_ = Image.fromarray((mask).astype('uint8').transpose(1, 2, 0))
+        mask_ = [Image.fromarray(m.astype('uint8')) for m in mask]  # process each object's mask separately.
+        mask_ = torch.stack([self.transform_mask(m) for m in mask_])
+        # print(mask_.shape)
         img_ = self.transform_img(img_)
-        mask_ = self.transform_mask(mask_)
-        if len(bbox) == 1:
-            mask_ = mask_.unsqueeze(0)
+        
         bbox_ = torch.tensor(bbox)
-        bbox_ = bbox_ * torch.tensor([  800/300,1066/400 , 800/300,1066/400]).reshape(1,4) + torch.tensor([0, 11, 0, 11]).reshape(1,4) # bbox: x,y,x,y 
-        # i = (img_*255).permute(1,2,0).numpy()
-        # i = Image.fromarray((i).astype('uint8'))
-        # plt.imshow(i)
-        # plt.savefig("img2.png")
+        bbox_ = bbox_ * torch.tensor([800 / 300, 1066 / 400, 800 / 300, 1066 / 400]).reshape(1, 4) + torch.tensor(
+            [0, 11, 0, 11]).reshape(1, 4)
+        bbox_ = torch.tensor(bbox_)
         # print(bbox_.shape[0])
-        # print(mask_.squeeze(0).shape[0])
-        # check flag
+        # print(mask_.squeeze(0).shape)
+        # Check flag
         assert img_.shape == (3, 800, 1088)
         assert bbox_.shape[0] == mask_.squeeze(0).shape[0]
         return img_, mask_, bbox_
+
+    # def pre_process_batch(self, img, mask, bbox):
+    #     # TODO: image preprocess
+    #     # img = cv2.resize(img, (3,800, 1066))
+    #     # mask = cv2.resize(mask, (800, 1066))
+    #     # img = img/255.0
+    #     # print(img.shape)
+    #     # img = (img - np.array([0.485, 0.456, 0.406]).reshape(3,1,1))/np.array([0.229, 0.224, 0.225]).reshape(3,1,1)
+    #     # img = np.pad(img, ((0,8),(0,0),(0,0)), 'constant', constant_values=0)
+    #     # mask = np.pad(mask, ((0,8),(0,0),(0,0)), 'constant', constant_values=0)
+    #     # bbox = bbox * np.array([1, 1066/400, 800/300, 1066/400, 800/300]).reshape(1,5)
+    #     img_ = Image.fromarray((img).astype('uint8').transpose(1, 2, 0))
+    #     # plt.imshow(img_)
+    #     # plt.savefig("img1.png")
+    #     if len(bbox) == 1:
+    #         mask_ = Image.fromarray((mask.squeeze(0)).astype('uint8'))
+    #     else:
+    #         mask_ = Image.fromarray((mask).astype('uint8').transpose(1, 2, 0))
+    #     img_ = self.transform_img(img_)
+    #     mask_ = self.transform_mask(mask_)
+       
+    #     if len(bbox) == 1:
+    #         mask_ = mask_.unsqueeze(0)
+    #     print(mask_.shape)
+    #     bbox_ = torch.tensor(bbox)
+    #     bbox_ = bbox_ * torch.tensor([  800/300,1066/400 , 800/300,1066/400]).reshape(1,4) + torch.tensor([0, 11, 0, 11]).reshape(1,4) # bbox: x,y,x,y 
+    #     # i = (img_*255).permute(1,2,0).numpy()
+    #     # i = Image.fromarray((i).astype('uint8'))
+    #     # plt.imshow(i)
+    #     # plt.savefig("img2.png")
+    #     # print(bbox_.shape[0])
+    #     # print(mask_.squeeze(0).shape[0])
+    #     # check flag
+    #     assert img_.shape == (3, 800, 1088)
+    #     assert bbox_.shape[0] == mask_.squeeze(0).shape[0]
+    #     return img_, mask_, bbox_
     
     def load_single_h5py(self, h5path, index):
         with h5py.File(h5path, 'r') as f:
@@ -132,9 +160,17 @@ class BuildDataLoader(torch.utils.data.DataLoader):
         imgs, labels, masks, bboxes = zip(*batch)
         imgs = torch.stack(imgs, dim=0)
         label_list = list(labels)
-        transed_mask_list = [mask.clone() for mask in masks]
-        trans_bbox_list = [bbox.clone() for bbox in bboxes]
-        
+        transed_mask_list = []
+        # for mask in masks:
+        #     # Adjust the shape of each mask tensor to be (n_obj, 800, 1088)
+        #     # The exact adjustment will depend on your initial mask shape
+        #     transed_mask_list.append(mask)
+        transed_mask_list = list(masks)
+        # transed_mask_list = [mask.clone() for mask in masks]
+        # trans_bbox_list = [bbox.clone() for bbox in bboxes]
+        trans_bbox_list = list(bboxes)
+       
+        # return imgs, label_list, masks, bboxes
         return imgs, label_list, transed_mask_list,trans_bbox_list
 
     def loader(self):
@@ -142,6 +178,41 @@ class BuildDataLoader(torch.utils.data.DataLoader):
         return dataloader
 
 
+def plot_and_save_batch(batch, save_dir):
+    img, label, mask, bbox = batch
+    
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    batch_size = img.shape[0]
+    mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
+    
+    for i in range(batch_size):
+        fig, ax = plt.subplots(1, figsize=(12, 9))
+        
+        img_data = img[i].cpu().numpy().transpose(1, 2, 0)
+        img_data = np.clip(img_data, 0, 1)
+        ax.imshow(img_data)
+        
+        # Visualize masks
+        for m, c in zip(mask[i], mask_color_list):
+            mask_data = m.cpu().numpy()
+            # print(mask_data.shape)
+            if mask_data.ndim == 3:  # if the mask is (1, height, width)
+                mask_data = mask_data[0]  # remove the singleton dimension
+            elif mask_data.ndim == 1:  # if the mask is (1088,)
+                height = int(np.sqrt(mask_data.size))  # assuming the mask is square
+                mask_data = mask_data.reshape((height, height))  # reshape to 2D
+            ax.imshow(mask_data, alpha=0.5, cmap=c)
+
+        # Visualize bounding boxes
+        for b in bbox[i]:
+            rect = patches.Rectangle((b[0], b[1]), b[2] - b[0], b[3] - b[1], linewidth=1, edgecolor='r', facecolor='none')
+            ax.add_patch(rect)
+            
+        # Saving the plots to the specified folder
+        fig.savefig(os.path.join(save_dir, f"visualtrainset_{i}.png"))
+        plt.close(fig)
 
 
 ## Visualize debugging
@@ -171,7 +242,7 @@ if __name__ == '__main__':
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     # push the randomized training data into the dataloader
     print(train_dataset[0])
-    batch_size = 2
+    batch_size = 10
     train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     train_loader = train_build_loader.loader()
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
@@ -188,28 +259,36 @@ if __name__ == '__main__':
     # loop the image
 
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    save_dir = "../plot"
+
     for iter, data in enumerate(train_loader, 0):
-        img, label, mask, bbox = [data[i] for i in range(len(data))]
-        print(img.shape)
-        print(label)
-        print(mask[0].shape,mask[1].shape)
-        print(bbox[0].shape,bbox[1].shape)
-        exit()
-        # check flag
-        assert img.shape == (batch_size, 3, 800, 1088)
-        assert len(mask) == batch_size
-
-        label = [label_img.to(device) for label_img in label]
-        mask = [mask_img.to(device) for mask_img in mask]
-        bbox = [bbox_img.to(device) for bbox_img in bbox]
-
-
-        # plot the origin img
-        for i in range(batch_size):
-            ## TODO: plot images with annotations
-            plt.savefig("./testfig/visualtrainset"+str(iter)+".png")
-            plt.show()
-
-        if iter == 10:
+        plot_and_save_batch(data, save_dir)
+        if iter >= 0:  # Stopping after 5 batches, you can change this to your preference.
             break
+
+
+    # for iter, data in enumerate(train_loader, 0):
+    #     img, label, mask, bbox = [data[i] for i in range(len(data))]
+    #     print(img.shape)
+    #     print(label)
+    #     print(mask[0].shape,mask[1].shape)
+    #     print(bbox[0].shape,bbox[1].shape)
+    #     exit()
+    #     # check flag
+    #     assert img.shape == (batch_size, 3, 800, 1088)
+    #     assert len(mask) == batch_size
+
+    #     label = [label_img.to(device) for label_img in label]
+    #     mask = [mask_img.to(device) for mask_img in mask]
+    #     bbox = [bbox_img.to(device) for bbox_img in bbox]
+
+
+    #     # plot the origin img
+    #     for i in range(batch_size):
+    #         ## TODO: plot images with annotations
+    #         plt.savefig("./testfig/visualtrainset"+str(iter)+".png")
+    #         plt.show()
+
+    #     if iter == 10:
+    #         break
 
