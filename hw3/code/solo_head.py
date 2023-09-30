@@ -400,20 +400,20 @@ class SOLOHead(nn.Module):
         ins_ind_label_list = []
         cate_label_list = []
 
-
         # The area of sqrt(w*h) of each object for examine which range to fit
         gt_area = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (
                 gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
-        
+        gt_labels_raw = torch.from_numpy(gt_labels_raw).to(device=device)
+    
         for (lower_bound, upper_bound), stride, featmap_size, num_grid \
                 in zip(self.scale_ranges, self.strides, featmap_sizes, self.seg_num_grids):
             # initial the output tensor for each featmap
-            ins_label = torch.zeros((num_grid**2, featmap_size[0]*2, featmap_size[1]*2),dtype=torch.uint8, device=device)
+            ins_label = torch.zeros((num_grid**2, featmap_size[0], featmap_size[1]),dtype=torch.uint8, device=device)
             ins_ind_label = torch.zeros((num_grid**2,),dtype=torch.bool, device=device)
             cate_label = torch.zeros((num_grid, num_grid),dtype=torch.int64, device=device)
 
             indices = (gt_area >= lower_bound) & (gt_area <= upper_bound)
-            indices = torch.nonzero(indices)
+            indices = torch.nonzero(indices).squeeze(1)
             if indices.size()[0] == 0:
                 ins_label_list.append(ins_label)
                 cate_label_list.append(cate_label)
@@ -424,8 +424,8 @@ class SOLOHead(nn.Module):
             gt_labels = gt_labels_raw[indices]
             gt_masks = gt_masks_raw[indices,...]
 
-            scale_w = (gt_bboxes[:, 2] - gt_bboxes[:, 0])  # the region we're going to consider
-            scale_h = (gt_bboxes[:, 3] - gt_bboxes[:, 1]) 
+            scale_w = (gt_bboxes[..., 2] - gt_bboxes[..., 0])  # the region we're going to consider
+            scale_h = (gt_bboxes[..., 3] - gt_bboxes[..., 1]) 
 
             center_x, center_y = (gt_bboxes[:, 2] + gt_bboxes[:, 0]) / 2, (gt_bboxes[:, 3] + gt_bboxes[:, 1]) / 2
 
@@ -452,17 +452,21 @@ class SOLOHead(nn.Module):
 
             num_of_objs = gt_bboxes.shape[0]
             scale = 2 / stride
-            for i in range(num_of_objs):
-                cate_label[top[i]:(down+1)[i], left:(right+1)[i]] = gt_labels[i]
+            for n in range(num_of_objs):
+                t = top[n].long()
+                d = down[n].long()
+                l = left[n].long()
+                r = right[n].long()
+                cate_label[t:(d + 1), l:(r + 1)] = gt_labels[n]
 
-                seg_mask = gt_masks[i]
-                h, w = seg_mask[:2]
+                seg_mask = gt_masks[n].numpy()
+                h, w = seg_mask.shape[-2:]
                 new_w, new_h = int(w * float(scale) + 0.5), int(h * float(scale) + 0.5)
                 seg_mask = cv2.resize(seg_mask, (new_w, new_h),  
                                       interpolation=cv2.INTER_LINEAR)
                 seg_mask = torch.from_numpy(seg_mask).to(device=device)
-                for i in range(top, down+1):
-                    for j in range(left, right+1):
+                for i in range(t, d+1):
+                    for j in range(l, r+1):
                         label = int(i * num_grid + j)
                         ins_label[label, :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
                         ins_ind_label[label] = True
@@ -606,13 +610,15 @@ if __name__ == '__main__':
         fpn_feat_list = list(backout.values())
         # make the target
 
-
+        print(bbox_list)
         ## demo
         cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False)
         ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                          bbox_list,
                                                                          label_list,
                                                                          mask_list)
+        print("finsihed target single image")
+        # visualize the ground truth
         mask_color_list = ["jet", "ocean", "Spectral"]
         solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
 
