@@ -424,8 +424,8 @@ class SOLOHead(nn.Module):
             gt_labels = gt_labels_raw[indices]
             gt_masks = gt_masks_raw[indices,...]
 
-            scale_w = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * self.epsilon # the region we're going to consider
-            scale_h = (gt_bboxes[:, 3] - gt_bboxes[:, 1]) * self.epsilon
+            scale_w = (gt_bboxes[:, 2] - gt_bboxes[:, 0])  # the region we're going to consider
+            scale_h = (gt_bboxes[:, 3] - gt_bboxes[:, 1]) 
 
             center_x, center_y = (gt_bboxes[:, 2] + gt_bboxes[:, 0]) / 2, (gt_bboxes[:, 3] + gt_bboxes[:, 1]) / 2
 
@@ -435,10 +435,10 @@ class SOLOHead(nn.Module):
             coord_y = torch.floor(center_y / output_size[0]) * num_grid
 
             # left, top, right, down
-            top_box = torch.floor(((center_x - scale_w * 0.5) / output_size[0]) * num_grid)
-            down_box = torch.floor(((center_x + scale_w * 0.5) / output_size[0]) * num_grid)
-            left_box = torch.floor(((center_y - scale_h * 0.5) / output_size[1]) * num_grid)
-            right_box = torch.floor(((center_y + scale_h * 0.5) / output_size[1]) * num_grid)
+            top_box = torch.floor(((center_x - scale_w * 0.5) / output_size[0]) * num_grid * self.epsilon)
+            down_box = torch.floor(((center_x + scale_w * 0.5) / output_size[0]) * num_grid * self.epsilon)
+            left_box = torch.floor(((center_y - scale_h * 0.5) / output_size[1]) * num_grid * self.epsilon)
+            right_box = torch.floor(((center_y + scale_h * 0.5) / output_size[1]) * num_grid * self.epsilon)
             top_box = torch.where(top_box < 0, torch.zeros_like(top_box), top_box)
             down_box = torch.where(down_box > num_grid - 1, torch.ones_like(down_box) * (num_grid - 1), down_box)
             left_box = torch.where(left_box < 0, torch.zeros_like(left_box), left_box)
