@@ -38,6 +38,12 @@ class BuildDataset(torch.utils.data.Dataset):
         self.transform_mask = transforms.Compose([transforms.Resize((800, 1066)),
                                              transforms.ToTensor(),
                                              transforms.Pad((11,0),fill=0)])
+        self.masks__idx = []
+        count = 0
+        for i in range(len(self.labels_data)):
+            self.masks__idx.append(count)
+            count += self.labels_data[i].shape[0]
+        print(self.masks__idx)
     # output:
         # transed_img
         # label
@@ -226,6 +232,7 @@ if __name__ == '__main__':
 
     # build the dataset
     dataset = BuildDataset(paths)
+    device = torch.device("cpu")
     #print(dataset[0])
     
     ## Visualize debugging
@@ -255,6 +262,7 @@ if __name__ == '__main__':
     # print(label)
     # print(mask[1].shape)
     # print(bbox[1].shape)
+    exit()
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
 
