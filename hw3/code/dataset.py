@@ -43,7 +43,6 @@ class BuildDataset(torch.utils.data.Dataset):
         for i in range(len(self.labels_data)):
             self.masks__idx.append(count)
             count += self.labels_data[i].shape[0]
-        print(self.masks__idx)
     # output:
         # transed_img
         # label
@@ -138,8 +137,9 @@ class BuildDataset(torch.utils.data.Dataset):
 
         return data
     def load_multi_h5py(self, h5path, index, num):
+        idx = self.masks__idx[index]
         with h5py.File(h5path, 'r') as f:
-            data = f["data"][index:index+num]
+            data = f["data"][idx:idx+num]
 
         return data
     
@@ -255,14 +255,13 @@ if __name__ == '__main__':
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     test_loader = test_build_loader.loader()
     print("Finish building dataloader")
-    print(len(train_loader))
-    print(len(test_loader))
+    # print(len(train_loader))
+    # print(len(test_loader))
     # img, label, mask, bbox = next(iter(train_loader))
     # print(img.shape)
     # print(label)
     # print(mask[1].shape)
     # print(bbox[1].shape)
-    exit()
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
 
