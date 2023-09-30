@@ -38,6 +38,11 @@ class BuildDataset(torch.utils.data.Dataset):
         self.transform_mask = transforms.Compose([transforms.Resize((800, 1066)),
                                              transforms.ToTensor(),
                                              transforms.Pad((11,0),fill=0)])
+        self.masks__idx = []
+        count = 0
+        for i in range(len(self.labels_data)):
+            self.masks__idx.append(count)
+            count += self.labels_data[i].shape[0]
     # output:
         # transed_img
         # label
@@ -51,12 +56,12 @@ class BuildDataset(torch.utils.data.Dataset):
         bbox = self.bboxes_data[index]
         # print(img.shape)
         # print(mask.shape)
-        # # print(len(label))
-        # print(bbox.shape)
+        # print(len(label))
+        #print("original",bbox)
 
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
-        print(transed_bbox.shape)
-        print(transed_mask.shape)
+        # print(transed_bbox.shape)
+        # print("mask shape",transed_mask.shape)
         # check flag
         assert transed_img.shape == (3, 800, 1088)
         assert transed_bbox.shape[0] == transed_mask.shape[0]
@@ -76,14 +81,13 @@ class BuildDataset(torch.utils.data.Dataset):
         img_ = Image.fromarray((img).astype('uint8').transpose(1, 2, 0))
         mask_ = [Image.fromarray(m.astype('uint8')) for m in mask]  # process each object's mask separately.
         mask_ = torch.stack([self.transform_mask(m) for m in mask_])
-        # print(mask_.shape)
         img_ = self.transform_img(img_)
         
         bbox_ = torch.tensor(bbox)
-        bbox_ = bbox_ * torch.tensor([800 / 300, 1066 / 400, 800 / 300, 1066 / 400]).reshape(1, 4) + torch.tensor(
-            [0, 11, 0, 11]).reshape(1, 4)
-        bbox_ = torch.tensor(bbox_)
-        # print(bbox_.shape[0])
+        bbox_ = bbox_ * torch.tensor([1066 / 400, 800 / 300,  1066 / 400, 800 / 300]).reshape(1, 4) + torch.tensor(
+            [11, 0,11, 0]).reshape(1, 4)
+        # bbox_ = torch.tensor(bbox_)
+        #print("after",bbox_)
         # print(mask_.squeeze(0).shape)
         # Check flag
         assert img_.shape == (3, 800, 1088)
@@ -132,8 +136,9 @@ class BuildDataset(torch.utils.data.Dataset):
 
         return data
     def load_multi_h5py(self, h5path, index, num):
+        idx = self.masks__idx[index]
         with h5py.File(h5path, 'r') as f:
-            data = f["data"][index:index+num]
+            data = f["data"][idx:idx+num]
 
         return data
     
@@ -180,7 +185,10 @@ class BuildDataLoader(torch.utils.data.DataLoader):
 
 def plot_and_save_batch(batch, save_dir):
     img, label, mask, bbox = batch
-    
+    # print(bbox)
+    print(label)
+    # print(len(mask))
+    print(mask[0].shape,mask[1].shape)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
@@ -195,7 +203,8 @@ def plot_and_save_batch(batch, save_dir):
         ax.imshow(img_data)
         
         # Visualize masks
-        for m, c in zip(mask[i], mask_color_list):
+        for m, l in zip(mask[i], label[i]):
+            c = mask_color_list[l]
             mask_data = m.cpu().numpy()
             # print(mask_data.shape)
             if mask_data.ndim == 3:  # if the mask is (1, height, width)
@@ -226,6 +235,7 @@ if __name__ == '__main__':
 
     # build the dataset
     dataset = BuildDataset(paths)
+    device = torch.device("cpu")
     #print(dataset[0])
     
     ## Visualize debugging
@@ -233,7 +243,7 @@ if __name__ == '__main__':
     # build the dataloader
     # set 20% of the dataset as the training data
     full_size = len(dataset)
-    print( full_size)
+    #print(full_size)
     train_size = int(full_size * 0.8)
     test_size = full_size - train_size
     # random split the dataset into training and testset
@@ -241,23 +251,22 @@ if __name__ == '__main__':
     torch.random.manual_seed(1)
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     # push the randomized training data into the dataloader
-    print(train_dataset[0])
+    #print(train_dataset[11])
     batch_size = 10
     train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     train_loader = train_build_loader.loader()
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     test_loader = test_build_loader.loader()
     print("Finish building dataloader")
-    print(len(train_loader))
-    print(len(test_loader))
-    # img, label, mask, bbox = next(iter(train_loader))
+    # print(len(train_loader))
+    # print(len(test_loader))
+    img, label, mask, bbox = next(iter(train_loader))
     # print(img.shape)
     # print(label)
-    # print(mask[1].shape)
-    # print(bbox[1].shape)
+    # print(mask[0].shape,mask[1].shape)
+    # print(bbox.shape)
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
-
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     save_dir = "../plot"
 
