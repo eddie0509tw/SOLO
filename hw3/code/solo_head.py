@@ -357,12 +357,18 @@ class SOLOHead(nn.Module):
         # cate_gts_list: list, len(bz), list, len(fpn), (S, S), {1,2,3}
     def target(self,
                ins_pred_list,
-               bbox_list,
-               label_list,
-               mask_list):
+               gt_bbox_list,
+               gt_label_list,
+               gt_mask_list):
         # TODO: use MultiApply to compute ins_gts_list, ins_ind_gts_list, cate_gts_list. Parallel w.r.t. img mini-batch
         # remember, you want to construct target of the same resolution as prediction output in training
-
+        featmap_sizes = [featmap.size()[-2:] for featmap in ins_pred_list]
+        ins_gts_list, ins_ind_gts_list, cate_gts_list = self.MultiApply(
+            self.solo_target_single,
+            gt_bbox_list,
+            gt_label_list,
+            gt_mask_list,
+            featmap_sizes=featmap_sizes)
         # check flag
         assert ins_gts_list[0][1].shape = (self.seg_num_grids[1]**2, 200, 272)
         assert ins_ind_gts_list[0][1].shape = (self.seg_num_grids[1]**2,)
