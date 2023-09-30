@@ -82,7 +82,7 @@ class BuildDataset(torch.utils.data.Dataset):
         mask_ = [Image.fromarray(m.astype('uint8')) for m in mask]  # process each object's mask separately.
         mask_ = torch.stack([self.transform_mask(m) for m in mask_])
         img_ = self.transform_img(img_)
-        
+    
         bbox_ = torch.tensor(bbox)
         bbox_ = bbox_ * torch.tensor([1066 / 400, 800 / 300,  1066 / 400, 800 / 300]).reshape(1, 4) + torch.tensor(
             [11, 0,11, 0]).reshape(1, 4)
@@ -92,7 +92,7 @@ class BuildDataset(torch.utils.data.Dataset):
         # Check flag
         assert img_.shape == (3, 800, 1088)
         assert bbox_.shape[0] == mask_.squeeze(0).shape[0]
-        return img_, mask_, bbox_
+        return img_, mask_.squeeze(1), bbox_
 
     # def pre_process_batch(self, img, mask, bbox):
     #     # TODO: image preprocess
