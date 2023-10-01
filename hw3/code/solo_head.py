@@ -429,34 +429,38 @@ class SOLOHead(nn.Module):
             gt_labels = gt_labels_raw[indices]
             gt_masks = gt_masks_raw[indices,...]
 
-            scale_w = (gt_bboxes[..., 2] - gt_bboxes[..., 0])  # the region we're going to consider
-            scale_h = (gt_bboxes[..., 3] - gt_bboxes[..., 1]) 
+            w = (gt_bboxes[..., 2] - gt_bboxes[..., 0])   # the region we're going to consider
+            h = (gt_bboxes[..., 3] - gt_bboxes[..., 1])
 
-            center_x, center_y = (gt_bboxes[:, 2] + gt_bboxes[:, 0]) / 2, (gt_bboxes[:, 3] + gt_bboxes[:, 1]) / 2
+            scale_w,scale_h = w * self.epsilon, h * self.epsilon
+
+            center_x, center_y = gt_bboxes[:, 0] + 0.5 * w, gt_bboxes[:, 1] + 0.5 * h
 
             output_size = (featmap_sizes[0][0] * 4, featmap_sizes[0][1] * 4) # 800, 1088
 
-            coord_x = torch.floor(center_x / output_size[1]) * num_grid # rescale relative to the output size and count which grid it belongs to
-            coord_y = torch.floor(center_y / output_size[0]) * num_grid
+            coord_x = torch.floor((center_x / output_size[1]) * num_grid) # rescale relative to the output size and count which grid it belongs to
+            coord_y = torch.floor((center_y / output_size[0]) * num_grid)
 
             # left, top, right, down
-            top_box = torch.floor(((center_x - scale_w * 0.5) / output_size[0]) * num_grid * self.epsilon)
-            down_box = torch.floor(((center_x + scale_w * 0.5) / output_size[0]) * num_grid * self.epsilon)
-            left_box = torch.floor(((center_y - scale_h * 0.5) / output_size[1]) * num_grid * self.epsilon)
-            right_box = torch.floor(((center_y + scale_h * 0.5) / output_size[1]) * num_grid * self.epsilon)
+            top_box = torch.floor(((center_y - scale_w * 0.5) / output_size[0] * num_grid ))
+            down_box = torch.ceil(((center_y + scale_w * 0.5) / output_size[0] * num_grid) )
+            left_box = torch.floor(((center_x - scale_h * 0.5) / output_size[1] * num_grid ))
+            right_box = torch.ceil(((center_x + scale_h * 0.5) / output_size[1] * num_grid))
+            print(top_box,down_box,left_box,right_box)
             top_box = torch.where(top_box < 0, torch.zeros_like(top_box), top_box)
             down_box = torch.where(down_box > num_grid - 1, torch.ones_like(down_box) * (num_grid - 1), down_box)
             left_box = torch.where(left_box < 0, torch.zeros_like(left_box), left_box)
             right_box = torch.where(right_box > num_grid - 1, torch.ones_like(right_box) * (num_grid - 1), right_box)
-
+            print(top_box,down_box,left_box,right_box)
             
-            top = torch.where(top_box > (coord_y - 1), top_box, torch.ones_like(coord_y - 1) * (coord_y - 1))
-            down = torch.where(down_box < (coord_y + 1), down_box, torch.ones_like(coord_y + 1) * (coord_y + 1))
-            left = torch.where(left_box > (coord_x - 1), left_box, torch.ones_like(coord_x - 1) * (coord_x - 1))
-            right = torch.where(right_box < (coord_x + 1), right_box, torch.ones_like(coord_x + 1) * (coord_x + 1))
+            top = torch.where(top_box > (coord_y - 1), top_box, torch.ones_like(coord_y) * (coord_y - 1))
+            down = torch.where(down_box < (coord_y + 1), down_box, torch.ones_like(coord_y) * (coord_y + 1))
+            left = torch.where(left_box > (coord_x - 1), left_box, torch.ones_like(coord_x) * (coord_x - 1))
+            right = torch.where(right_box < (coord_x + 1), right_box, torch.ones_like(coord_x) * (coord_x + 1))
 
             num_of_objs = gt_bboxes.shape[0]
             scale = 2 / stride
+
             for n in range(num_of_objs):
                 t = top[n].long()
                 d = down[n].long()
@@ -465,17 +469,25 @@ class SOLOHead(nn.Module):
                 cate_label[t:(d + 1), l:(r + 1)] = gt_labels[n]
 
                 seg_mask = gt_masks[n].numpy()
+                # print(np.any(seg_mask))
                 h, w = seg_mask.shape[-2:]
                 new_w, new_h = int(w * float(scale) + 0.5), int(h * float(scale) + 0.5)
-                seg_mask = cv2.resize(seg_mask, (new_w, new_h),  
-                                      interpolation=cv2.INTER_LINEAR)
+                # seg_mask = cv2.resize(seg_mask, (new_w, new_h),  
+                #                       interpolation=cv2.INTER_LINEAR)
+                seg_mask = skimage.transform.resize(seg_mask, (new_h, new_w))
+                seg_mask = np.where(seg_mask > 0,1,0)
+                # print(np.any(seg_mask))
+                # print(np.any(seg_mask.astype(np.uint8)))
                 seg_mask = torch.from_numpy(seg_mask).to(device=device)
+
                 for i in range(t, d+1):
                     for j in range(l, r+1):
                         label = int(i * num_grid + j)
                         ins_label[label, :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
                         ins_ind_label[label] = True
-
+            # print(ins_label)
+            # print(torch.any(ins_label))
+            # exit()
             ins_label_list.append(ins_label)
             cate_label_list.append(cate_label)
             ins_ind_label_list.append(ins_ind_label)
@@ -563,6 +575,8 @@ class SOLOHead(nn.Module):
                 ins_gts = ins_gts_list[img_i][level_i]      # (S^2, 2H_f, 2W_f)
                 cate_gts = cate_gts_list[img_i][level_i]    # (S, S), {1,2,3}
                 ins_ind_gts = ins_ind_gts_list[img_i][level_i]  # (S^2)
+                # print(ins_gts.size())
+                # print(torch.any(ins_gts))
 
                 # synthesis the visualization for this level of FPN
                 # img_vis = np.array(img_single.cpu().numpy())
@@ -597,14 +611,14 @@ class SOLOHead(nn.Module):
                 # base image to numpy array and perform transform
                 img_vis = img_single.cpu().numpy().transpose((1, 2, 0))
                 # use mask value if available, otherwise, use img value
-                # img_vis = mask_vis_resized + img_vis * (mask_vis_resized == 0)
+                img_vis = mask_vis_resized + img_vis * (mask_vis_resized == 0)
 
                 fig, ax = plt.subplots(1)
                 ax.imshow(img_vis)
-                plt.show()
-                mask_np = mask_vis_resized
-                mask_np = np.ma.masked_where(mask_np == 0, mask_np)
-                ax.imshow(mask_np, alpha=0.5, interpolation='none')
+                #plt.show()
+                # mask_np = mask_vis_resized
+                # mask_np = np.ma.masked_where(mask_np == 0, mask_np)
+                # ax.imshow(mask_np, alpha=0.5, interpolation='none')
                 # save the file
                 saving_id = 1
                 saving_file = "../gt_plot/img_{}_fpn_{}.png".format(saving_id, level_i)
