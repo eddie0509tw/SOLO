@@ -5,6 +5,11 @@ import numpy as np
 from scipy import ndimage
 from dataset import *
 from functools import partial
+from matplotlib import cm
+import skimage.transform
+import matplotlib.pyplot as plt
+import matplotlib
+import copy
 
 class SOLOHead(nn.Module):
     def __init__(self,
@@ -545,7 +550,70 @@ class SOLOHead(nn.Module):
                img):
         ## TODO: target image recover, for each image, recover their segmentation in 5 FPN levels.
         ## This is an important visual check flag.
-        pass
+        rgb_color_list = []
+        for color_str in color_list:
+            color_map = cm.ScalarMappable(cmap=color_str)
+            rgb_value = np.array(color_map.to_rgba(0))[:3]
+            rgb_color_list.append(rgb_value)
+
+        ## This is an important visual check flag.
+        for img_i in range(len(ins_gts_list)):
+            img_single = img[img_i]         # (3,Ori_H, Ori_W) original color image
+            for level_i in range(len(ins_gts_list[img_i])):
+                ins_gts = ins_gts_list[img_i][level_i]      # (S^2, 2H_f, 2W_f)
+                cate_gts = cate_gts_list[img_i][level_i]    # (S, S), {1,2,3}
+                ins_ind_gts = ins_ind_gts_list[img_i][level_i]  # (S^2)
+
+                # synthesis the visualization for this level of FPN
+                # img_vis = np.array(img_single.cpu().numpy())
+                # ax.imshow(img_vis.transpose((1, 2, 0)))
+
+                assert ins_gts.shape[1] % 2 == 0
+                assert ins_gts.shape[2] % 2 == 0
+                H_feat = int(ins_gts.shape[1] / 2)
+                W_feat = int(ins_gts.shape[2] / 2)
+                S = cate_gts.shape[0]
+
+                # for all active channel, extract the mask and sum up
+                mask_vis = np.zeros((2 * H_feat, 2 * W_feat, 3))        # (2*H_feat, 2*W_feat, 3)
+                for flatten_tensor in torch.nonzero(ins_ind_gts, as_tuple=False):
+                    flatten_idx = flatten_tensor.item()
+                    grid_i = int(flatten_idx / S)
+                    grid_j = flatten_idx % S
+                    obj_label = cate_gts[grid_i, grid_j]
+                    assert obj_label != 0.0
+
+                    # assign color
+                    rgb_color = rgb_color_list[obj_label - 1]       # (3,)
+                    # add mask to visualization image
+                    obj_mask = ins_gts[flatten_idx].cpu().numpy()   # (2*H_feat, 2*W_feat)
+                    obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (2*H_feat, 2*W_feat, 3)
+                    mask_vis = mask_vis + obj_mask_3 * rgb_color
+
+
+                # visualization
+                mask_vis_resized = skimage.transform.resize(mask_vis, (img_single.shape[1], img_single.shape[2], 3))
+
+                # base image to numpy array and perform transform
+                img_vis = img_single.cpu().numpy().transpose((1, 2, 0))
+                # use mask value if available, otherwise, use img value
+                # img_vis = mask_vis_resized + img_vis * (mask_vis_resized == 0)
+
+                fig, ax = plt.subplots(1)
+                ax.imshow(img_vis)
+                plt.show()
+                mask_np = mask_vis_resized
+                mask_np = np.ma.masked_where(mask_np == 0, mask_np)
+                ax.imshow(mask_np, alpha=0.5, interpolation='none')
+                # save the file
+                saving_id = 1
+                saving_file = "../gt_plot/img_{}_fpn_{}.png".format(saving_id, level_i)
+                while os.path.isfile(saving_file):
+                    saving_id = saving_id + 1
+                    saving_file = "../gt_plot/img_{}_fpn_{}.png".format(saving_id, level_i)
+                fig.savefig(saving_file)
+
+
 
     # This function plot the inference segmentation in img
     # Input:
@@ -562,7 +630,53 @@ class SOLOHead(nn.Module):
                   img,
                   iter_ind):
         ## TODO: Plot predictions
-        pass
+        rgb_color_list = []
+        for color_str in color_list:
+            color_map = cm.ScalarMappable(cmap=color_str)
+            rgb_value = np.array(color_map.to_rgba(0))[:3]
+            rgb_color_list.append(rgb_value)
+
+        for img_i, data in enumerate(zip(NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list, img), 0):
+            # score: (keep_instance,)
+            # cate_label: (keep_instance,)
+            # ins: (keep_instance, ori_H, ori_W)
+            score, cate_label, ins, img_single = data
+            img_vis = img_single.cpu().numpy().transpose((1, 2, 0))     # (H, W, 3)
+
+            # save the original image
+            fig, ax = plt.subplots(1)
+            ax.imshow(img_vis)
+            plt.show()
+            os.makedirs("infer_result", exist_ok=True)
+            saving_file = "../infer_plot/batch_{}_img_{}_ori.png".format(iter_ind, img_i)
+            plt.savefig(saving_file)
+
+            # overlap all instance's mask to mask_vis (with color)
+            mask_vis = np.zeros_like(img_vis)               # (H, W, 3)
+            for ins_id in range(len(score)):
+                obj_label = cate_label[ins_id]
+                ins_bin = (ins[ins_id] >= self.postprocess_cfg['ins_thresh']) * 1.0
+                obj_mask = ins_bin.cpu().numpy()        # (H, W)
+
+                # assign color
+                # Note: the object label from prediction here includes background.
+                rgb_color = rgb_color_list[obj_label - 1]  # (3,)
+                # add mask to visualization image
+                obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (H, W, 3)
+                mask_vis = mask_vis + obj_mask_3 * rgb_color
+
+            # use mask value if available, otherwise, use img value
+            img_vis = mask_vis + img_vis * (mask_vis == 0)
+
+            # visualize
+            fig, ax = plt.subplots(1)
+            ax.imshow(img_vis)
+            plt.show()
+
+            # save the file
+            os.makedirs("infer_result", exist_ok=True)
+            saving_file = "../infer_plot/batch_{}_img_{}.png".format(iter_ind, img_i)
+            plt.savefig(saving_file)
 
 from backbone import *
 if __name__ == '__main__':
@@ -621,5 +735,6 @@ if __name__ == '__main__':
         # visualize the ground truth
         mask_color_list = ["jet", "ocean", "Spectral"]
         solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
+        break
 
 

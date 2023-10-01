@@ -201,27 +201,43 @@ def plot_and_save_batch(batch, save_dir):
         img_data = img[i].cpu().numpy().transpose(1, 2, 0)
         img_data = np.clip(img_data, 0, 1)
         ax.imshow(img_data)
-        
-        # Visualize masks
-        for m, l in zip(mask[i], label[i]):
-            c = mask_color_list[l]
-            mask_data = m.cpu().numpy()
-            # print(mask_data.shape)
-            if mask_data.ndim == 3:  # if the mask is (1, height, width)
-                mask_data = mask_data[0]  # remove the singleton dimension
-            elif mask_data.ndim == 1:  # if the mask is (1088,)
-                height = int(np.sqrt(mask_data.size))  # assuming the mask is square
-                mask_data = mask_data.reshape((height, height))  # reshape to 2D
-            ax.imshow(mask_data, alpha=0.5, cmap=c)
 
-        # Visualize bounding boxes
-        for b in bbox[i]:
-            rect = patches.Rectangle((b[0], b[1]), b[2] - b[0], b[3] - b[1], linewidth=1, edgecolor='r', facecolor='none')
-            ax.add_patch(rect)
-            
-        # Saving the plots to the specified folder
+        for j in range(len(label[i])):
+                # plot the bbox
+                x1, y1, x2, y2 = bbox[i][j]
+                w = x2 - x1
+                h = y2 - y1
+                rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
+                ax.add_patch(rect)
+
+                # plot the mask
+                mask_np = mask[i][j].cpu().numpy()
+                mask_np = np.ma.masked_where(mask_np == 0, mask_np)
+                ax.imshow(mask_np, cmap=mask_color_list[j], alpha=0.5, interpolation='none')
         fig.savefig(os.path.join(save_dir, f"visualtrainset_{i}.png"))
         plt.close(fig)
+            
+        
+        # # Visualize masks
+        # for m, l in zip(mask[i], label[i]):
+        #     c = mask_color_list[l]
+        #     mask_data = m.cpu().numpy()
+        #     # print(mask_data.shape)
+        #     if mask_data.ndim == 3:  # if the mask is (1, height, width)
+        #         mask_data = mask_data[0]  # remove the singleton dimension
+        #     elif mask_data.ndim == 1:  # if the mask is (1088,)
+        #         height = int(np.sqrt(mask_data.size))  # assuming the mask is square
+        #         mask_data = mask_data.reshape((height, height))  # reshape to 2D
+        #     ax.imshow(mask_data, alpha=0.5, cmap=c)
+
+        # # Visualize bounding boxes
+        # for b in bbox[i]:
+        #     rect = patches.Rectangle((b[0], b[1]), b[2] - b[0], b[3] - b[1], linewidth=1, edgecolor='r', facecolor='none')
+        #     ax.add_patch(rect)
+            
+        # # Saving the plots to the specified folder
+        # fig.savefig(os.path.join(save_dir, f"visualtrainset_{i}.png"))
+        # plt.close(fig)
 
 
 ## Visualize debugging
