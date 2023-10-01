@@ -5,6 +5,11 @@ import numpy as np
 from scipy import ndimage
 from dataset import *
 from functools import partial
+from matplotlib import cm
+import skimage.transform
+import matplotlib.pyplot as plt
+import matplotlib
+import copy
 
 class SOLOHead(nn.Module):
     def __init__(self,
@@ -424,34 +429,37 @@ class SOLOHead(nn.Module):
             gt_labels = gt_labels_raw[indices]
             gt_masks = gt_masks_raw[indices,...]
 
-            scale_w = (gt_bboxes[..., 2] - gt_bboxes[..., 0])  # the region we're going to consider
-            scale_h = (gt_bboxes[..., 3] - gt_bboxes[..., 1]) 
+            w = (gt_bboxes[..., 2] - gt_bboxes[..., 0])   # the region we're going to consider
+            h = (gt_bboxes[..., 3] - gt_bboxes[..., 1])
 
-            center_x, center_y = (gt_bboxes[:, 2] + gt_bboxes[:, 0]) / 2, (gt_bboxes[:, 3] + gt_bboxes[:, 1]) / 2
+            scale_w,scale_h = w * self.epsilon, h * self.epsilon
+
+            center_x, center_y = gt_bboxes[:, 0] + 0.5 * w, gt_bboxes[:, 1] + 0.5 * h
 
             output_size = (featmap_sizes[0][0] * 4, featmap_sizes[0][1] * 4) # 800, 1088
 
-            coord_x = torch.floor(center_x / output_size[1]) * num_grid # rescale relative to the output size and count which grid it belongs to
-            coord_y = torch.floor(center_y / output_size[0]) * num_grid
+            coord_x = torch.floor((center_x / output_size[1]) * num_grid) # rescale relative to the output size and count which grid it belongs to
+            coord_y = torch.floor((center_y / output_size[0]) * num_grid)
 
             # left, top, right, down
-            top_box = torch.floor(((center_x - scale_w * 0.5) / output_size[0]) * num_grid * self.epsilon)
-            down_box = torch.floor(((center_x + scale_w * 0.5) / output_size[0]) * num_grid * self.epsilon)
-            left_box = torch.floor(((center_y - scale_h * 0.5) / output_size[1]) * num_grid * self.epsilon)
-            right_box = torch.floor(((center_y + scale_h * 0.5) / output_size[1]) * num_grid * self.epsilon)
+            top_box = torch.floor(((center_y - scale_w * 0.5) / output_size[0] * num_grid ))
+            down_box = torch.floor(((center_y + scale_w * 0.5) / output_size[0] * num_grid) )
+            left_box = torch.floor(((center_x - scale_h * 0.5) / output_size[1] * num_grid ))
+            right_box = torch.floor(((center_x + scale_h * 0.5) / output_size[1] * num_grid))
+            
             top_box = torch.where(top_box < 0, torch.zeros_like(top_box), top_box)
             down_box = torch.where(down_box > num_grid - 1, torch.ones_like(down_box) * (num_grid - 1), down_box)
             left_box = torch.where(left_box < 0, torch.zeros_like(left_box), left_box)
             right_box = torch.where(right_box > num_grid - 1, torch.ones_like(right_box) * (num_grid - 1), right_box)
-
             
-            top = torch.where(top_box > (coord_y - 1), top_box, torch.ones_like(coord_y - 1) * (coord_y - 1))
-            down = torch.where(down_box < (coord_y + 1), down_box, torch.ones_like(coord_y + 1) * (coord_y + 1))
-            left = torch.where(left_box > (coord_x - 1), left_box, torch.ones_like(coord_x - 1) * (coord_x - 1))
-            right = torch.where(right_box < (coord_x + 1), right_box, torch.ones_like(coord_x + 1) * (coord_x + 1))
+            top = torch.where(top_box > (coord_y - 1), top_box, torch.ones_like(coord_y) * (coord_y - 1))
+            down = torch.where(down_box < (coord_y + 1), down_box, torch.ones_like(coord_y) * (coord_y + 1))
+            left = torch.where(left_box > (coord_x - 1), left_box, torch.ones_like(coord_x) * (coord_x - 1))
+            right = torch.where(right_box < (coord_x + 1), right_box, torch.ones_like(coord_x) * (coord_x + 1))
 
             num_of_objs = gt_bboxes.shape[0]
             scale = 2 / stride
+
             for n in range(num_of_objs):
                 t = top[n].long()
                 d = down[n].long()
@@ -460,17 +468,25 @@ class SOLOHead(nn.Module):
                 cate_label[t:(d + 1), l:(r + 1)] = gt_labels[n]
 
                 seg_mask = gt_masks[n].numpy()
+                # print(np.any(seg_mask))
                 h, w = seg_mask.shape[-2:]
-                new_w, new_h = int(w * float(scale) + 0.5), int(h * float(scale) + 0.5)
+                new_w, new_h = int(w * float(scale)+0.5), int(h * float(scale)+0.5)
                 seg_mask = cv2.resize(seg_mask, (new_w, new_h),  
                                       interpolation=cv2.INTER_LINEAR)
+                #seg_mask = skimage.transform.resize(seg_mask, (new_h, new_w))
+                seg_mask = np.where(seg_mask > 0.0,1,0)
+                # print(np.any(seg_mask))
+                # print(np.any(seg_mask.astype(np.uint8)))
                 seg_mask = torch.from_numpy(seg_mask).to(device=device)
+
                 for i in range(t, d+1):
                     for j in range(l, r+1):
                         label = int(i * num_grid + j)
                         ins_label[label, :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
                         ins_ind_label[label] = True
-
+            # print(ins_label)
+            # print(torch.any(ins_label))
+            # exit()
             ins_label_list.append(ins_label)
             cate_label_list.append(cate_label)
             ins_ind_label_list.append(ins_ind_label)
@@ -545,7 +561,72 @@ class SOLOHead(nn.Module):
                img):
         ## TODO: target image recover, for each image, recover their segmentation in 5 FPN levels.
         ## This is an important visual check flag.
-        pass
+        rgb_color_list = []
+        for color_str in color_list:
+            color_map = cm.ScalarMappable(cmap=color_str)
+            rgb_value = np.array(color_map.to_rgba(0))[:3]
+            rgb_color_list.append(rgb_value)
+
+        ## This is an important visual check flag.
+        for img_i in range(len(ins_gts_list)):
+            img_single = img[img_i]         # (3,Ori_H, Ori_W) original color image
+            for level_i in range(len(ins_gts_list[img_i])):
+                ins_gts = ins_gts_list[img_i][level_i]      # (S^2, 2H_f, 2W_f)
+                cate_gts = cate_gts_list[img_i][level_i]    # (S, S), {1,2,3}
+                ins_ind_gts = ins_ind_gts_list[img_i][level_i]  # (S^2)
+                # print(ins_gts.size())
+                # print(torch.any(ins_gts))
+
+                # synthesis the visualization for this level of FPN
+                # img_vis = np.array(img_single.cpu().numpy())
+                # ax.imshow(img_vis.transpose((1, 2, 0)))
+
+                assert ins_gts.shape[1] % 2 == 0
+                assert ins_gts.shape[2] % 2 == 0
+                H_feat = int(ins_gts.shape[1] / 2)
+                W_feat = int(ins_gts.shape[2] / 2)
+                S = cate_gts.shape[0]
+
+                # for all active channel, extract the mask and sum up
+                mask_vis = np.zeros((2 * H_feat, 2 * W_feat, 3))        # (2*H_feat, 2*W_feat, 3)
+                for flatten_tensor in torch.nonzero(ins_ind_gts, as_tuple=False):
+                    flatten_idx = flatten_tensor.item()
+                    grid_i = int(flatten_idx / S)
+                    grid_j = flatten_idx % S
+                    obj_label = cate_gts[grid_i, grid_j]
+                    assert obj_label != 0.0
+
+                    # assign color
+                    rgb_color = rgb_color_list[obj_label - 1]       # (3,)
+                    # add mask to visualization image
+                    obj_mask = ins_gts[flatten_idx].cpu().numpy()   # (2*H_feat, 2*W_feat)
+                    obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (2*H_feat, 2*W_feat, 3)
+                    mask_vis = mask_vis + obj_mask_3 * rgb_color
+
+
+                # visualization
+                mask_vis_resized = skimage.transform.resize(mask_vis, (img_single.shape[1], img_single.shape[2], 3))
+
+                # base image to numpy array and perform transform
+                img_vis = img_single.cpu().numpy().transpose((1, 2, 0))
+                # use mask value if available, otherwise, use img value
+                img_vis = mask_vis_resized + img_vis * (mask_vis_resized == 0)
+
+                fig, ax = plt.subplots(1)
+                ax.imshow(img_vis)
+                #plt.show()
+                # mask_np = mask_vis_resized
+                # mask_np = np.ma.masked_where(mask_np == 0, mask_np)
+                # ax.imshow(mask_np, alpha=0.5, interpolation='none')
+                # save the file
+                saving_id = 1
+                saving_file = "../gt_plot/img_{}_fpn_{}.png".format(saving_id, level_i)
+                while os.path.isfile(saving_file):
+                    saving_id = saving_id + 1
+                    saving_file = "../gt_plot/img_{}_fpn_{}.png".format(saving_id, level_i)
+                fig.savefig(saving_file)
+
+
 
     # This function plot the inference segmentation in img
     # Input:
@@ -562,7 +643,53 @@ class SOLOHead(nn.Module):
                   img,
                   iter_ind):
         ## TODO: Plot predictions
-        pass
+        rgb_color_list = []
+        for color_str in color_list:
+            color_map = cm.ScalarMappable(cmap=color_str)
+            rgb_value = np.array(color_map.to_rgba(0))[:3]
+            rgb_color_list.append(rgb_value)
+
+        for img_i, data in enumerate(zip(NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list, img), 0):
+            # score: (keep_instance,)
+            # cate_label: (keep_instance,)
+            # ins: (keep_instance, ori_H, ori_W)
+            score, cate_label, ins, img_single = data
+            img_vis = img_single.cpu().numpy().transpose((1, 2, 0))     # (H, W, 3)
+
+            # save the original image
+            fig, ax = plt.subplots(1)
+            ax.imshow(img_vis)
+            plt.show()
+            os.makedirs("infer_result", exist_ok=True)
+            saving_file = "../infer_plot/batch_{}_img_{}_ori.png".format(iter_ind, img_i)
+            plt.savefig(saving_file)
+
+            # overlap all instance's mask to mask_vis (with color)
+            mask_vis = np.zeros_like(img_vis)               # (H, W, 3)
+            for ins_id in range(len(score)):
+                obj_label = cate_label[ins_id]
+                ins_bin = (ins[ins_id] >= self.postprocess_cfg['ins_thresh']) * 1.0
+                obj_mask = ins_bin.cpu().numpy()        # (H, W)
+
+                # assign color
+                # Note: the object label from prediction here includes background.
+                rgb_color = rgb_color_list[obj_label - 1]  # (3,)
+                # add mask to visualization image
+                obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (H, W, 3)
+                mask_vis = mask_vis + obj_mask_3 * rgb_color
+
+            # use mask value if available, otherwise, use img value
+            img_vis = mask_vis + img_vis * (mask_vis == 0)
+
+            # visualize
+            fig, ax = plt.subplots(1)
+            ax.imshow(img_vis)
+            plt.show()
+
+            # save the file
+            os.makedirs("infer_result", exist_ok=True)
+            saving_file = "../infer_plot/batch_{}_img_{}.png".format(iter_ind, img_i)
+            plt.savefig(saving_file)
 
 from backbone import *
 if __name__ == '__main__':
@@ -621,5 +748,6 @@ if __name__ == '__main__':
         # visualize the ground truth
         mask_color_list = ["jet", "ocean", "Spectral"]
         solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
+        break
 
 

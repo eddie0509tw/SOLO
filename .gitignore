@@ -18,4 +18,6 @@ __pycache__/
 # Ignore virtual environment folders (e.g., for Python virtual environments)
 *.png
 data/
+plot/
+gt_plot/
 ```
