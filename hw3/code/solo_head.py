@@ -443,15 +443,14 @@ class SOLOHead(nn.Module):
 
             # left, top, right, down
             top_box = torch.floor(((center_y - scale_w * 0.5) / output_size[0] * num_grid ))
-            down_box = torch.ceil(((center_y + scale_w * 0.5) / output_size[0] * num_grid) )
+            down_box = torch.floor(((center_y + scale_w * 0.5) / output_size[0] * num_grid) )
             left_box = torch.floor(((center_x - scale_h * 0.5) / output_size[1] * num_grid ))
-            right_box = torch.ceil(((center_x + scale_h * 0.5) / output_size[1] * num_grid))
-            print(top_box,down_box,left_box,right_box)
+            right_box = torch.floor(((center_x + scale_h * 0.5) / output_size[1] * num_grid))
+            
             top_box = torch.where(top_box < 0, torch.zeros_like(top_box), top_box)
             down_box = torch.where(down_box > num_grid - 1, torch.ones_like(down_box) * (num_grid - 1), down_box)
             left_box = torch.where(left_box < 0, torch.zeros_like(left_box), left_box)
             right_box = torch.where(right_box > num_grid - 1, torch.ones_like(right_box) * (num_grid - 1), right_box)
-            print(top_box,down_box,left_box,right_box)
             
             top = torch.where(top_box > (coord_y - 1), top_box, torch.ones_like(coord_y) * (coord_y - 1))
             down = torch.where(down_box < (coord_y + 1), down_box, torch.ones_like(coord_y) * (coord_y + 1))
@@ -471,11 +470,11 @@ class SOLOHead(nn.Module):
                 seg_mask = gt_masks[n].numpy()
                 # print(np.any(seg_mask))
                 h, w = seg_mask.shape[-2:]
-                new_w, new_h = int(w * float(scale) + 0.5), int(h * float(scale) + 0.5)
-                # seg_mask = cv2.resize(seg_mask, (new_w, new_h),  
-                #                       interpolation=cv2.INTER_LINEAR)
-                seg_mask = skimage.transform.resize(seg_mask, (new_h, new_w))
-                seg_mask = np.where(seg_mask > 0,1,0)
+                new_w, new_h = int(w * float(scale)+0.5), int(h * float(scale)+0.5)
+                seg_mask = cv2.resize(seg_mask, (new_w, new_h),  
+                                      interpolation=cv2.INTER_LINEAR)
+                #seg_mask = skimage.transform.resize(seg_mask, (new_h, new_w))
+                seg_mask = np.where(seg_mask > 0.0,1,0)
                 # print(np.any(seg_mask))
                 # print(np.any(seg_mask.astype(np.uint8)))
                 seg_mask = torch.from_numpy(seg_mask).to(device=device)
