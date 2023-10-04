@@ -14,6 +14,8 @@ __pycache__/
 *.pyo
 __pycache__/
 *.pyd
+try.py
+test.py
 
 # Ignore virtual environment folders (e.g., for Python virtual environments)
 *.png
