@@ -321,7 +321,31 @@ class SOLOHead(nn.Module):
              ins_ind_gts_list,
              cate_gts_list):
         ## TODO: compute loss, vecterize this part will help a lot. To avoid potential ill-conditioning, if necessary, add a very small number to denominator for focalloss and diceloss computation.
-        pass
+        bz = len(ins_gts_list)
+        fpn=len(ins_gts_list[0])
+        # get all the active grid and concat them together -># list, len(fpn), float32 (# gt_grid_across_batch, 2H_feat, 2W_feat)
+        ins_gts = [torch.cat([ins_labels_level_img[ins_ind_labels_level_img, ...]   #
+                for ins_labels_level_img, ins_ind_labels_level_img in 
+                zip(ins_labels_level, ins_ind_labels_level)], 0)
+            for ins_labels_level, ins_ind_labels_level in 
+            zip(zip(*ins_gts_list), zip(*ins_ind_gts_list))]  
+        # We get those active from prediction grid only also -># list, len(fpn), float32 (# gt_grid_across_batch, 2H_feat, 2W_feat)        
+        ins_preds = [torch.cat([ins_preds_level_img[ins_ind_labels_level_img, ...]
+                for ins_preds_level_img, ins_ind_labels_level_img in 
+                zip(ins_preds_level, ins_ind_labels_level)], 0)
+            for ins_preds_level, ins_ind_labels_level in 
+            zip(ins_pred_list, zip(*ins_ind_gts_list))]     
+        
+        #DiceLoss
+        dice_loss = 0
+        n_pos = 0
+        for input_level,target_level in zip(ins_preds, ins_gts):
+            n_pos += input_level.size(0)
+            dice_loss_list = self.MultiApply(self.DiceLoss,torch.sigmoid(input_level), target_level)
+            dice_loss += sum(dice_loss_list)
+
+        dice_loss = dice_loss / n_pos
+
 
 
 
@@ -332,7 +356,13 @@ class SOLOHead(nn.Module):
     # Output: dice_loss, scalar
     def DiceLoss(self, mask_pred, mask_gt):
         ## TODO: compute DiceLoss
-        pass
+        pred_flat = mask_pred.contiguous().view(-1).float()
+        gt_flat = mask_gt.contiguous().view(-1).float()
+        intersection = torch.sum(pred_flat * gt_flat)
+        pred_sum = torch.sum(pred_flat * pred_flat)
+        gt_sum = torch.sum(gt_flat * gt_flat)
+        dice_loss = 1 - (2 * intersection + 1e-5) / (pred_sum + gt_sum + 1e-5)
+        return dice_loss
 
     # This function compute the cate loss
     # Input:
@@ -540,7 +570,22 @@ class SOLOHead(nn.Module):
         # decay_scores: (n_act,)
     def MatrixNMS(self, sorted_ins, sorted_scores, method='gauss', gauss_sigma=0.5):
         ## TODO: finish MatrixNMS
-        pass
+        n = len(sorted_scores)
+        sorted_masks = sorted_masks.reshape(n, -1)
+
+        intersection = torch.mm(sorted_masks, sorted_masks.T)
+        areas = sorted_masks.sum(dim=1).expand(n, n)
+        union = areas + areas.T
+        ious = (intersection / union).triu(diagonal=1)
+
+        ious_cmin = ious.min(0)[0].expand(n, n).T
+        if method == 'gauss':
+            decay = torch.exp(-(ious ** 2 - ious_cmin ** 2) / gauss_sigma)
+        else:
+            decay = (ious) / (ious_cmin)
+
+        decay = decay.min(dim=0)[0]
+        return sorted_scores * decay
 
     # -----------------------------------
     ## The following code is for visualization
@@ -748,6 +793,7 @@ if __name__ == '__main__':
         # visualize the ground truth
         mask_color_list = ["jet", "ocean", "Spectral"]
         solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
-        break
+        if iter > 5:
+            break
 
 
