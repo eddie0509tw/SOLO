@@ -344,10 +344,27 @@ class SOLOHead(nn.Module):
             dice_loss_list = self.MultiApply(self.DiceLoss,torch.sigmoid(input_level), target_level)
             dice_loss += sum(dice_loss_list)
 
-        dice_loss = dice_loss / n_pos
+        mask_loss = dice_loss / n_pos
 
+        #FocalLoss
+        cate_gts = [
+                    torch.cat([cate_labels_level_img.flatten() 
+                                for cate_labels_level_img in cate_labels_level])
+                    for cate_labels_level in zip(*cate_gts_list)
+                    ]
+        cate_gts = torch.cat(cate_gts)  #(7744,) torch {0,1,2,3}   int64
 
+        cate_preds = [
+                    cate_pred_level.permute(0,2,3,1).reshape(-1, self.cate_out_channels) 
+                    for cate_pred_level in cate_pred_list
+                    ]   #list, len()=5,each(bz*S*S,3) for each level       
+        cate_preds = torch.cat(cate_preds, 0)    #(7744,3) torch   [0~1] float32
 
+        cate_loss = self.FocalLoss(cate_preds, cate_gts)
+
+        total_loss=cate_loss+self.mask_loss_cfg["weight"]*mask_loss
+
+        return cate_loss, mask_loss, total_loss
 
     # This function compute the DiceLoss
     # Input:
@@ -371,7 +388,23 @@ class SOLOHead(nn.Module):
     # Output: focal_loss, scalar
     def FocalLoss(self, cate_preds, cate_gts):
         ## TODO: compute focalloss
-        pass
+        alpha = self.cate_loss_cfg['alpha']
+        gamma = self.cate_loss_cfg['gamma']
+        N=cate_preds.shape[0]
+        C=cate_preds.shape[1]+1
+
+        one_hot = torch.zeros((N,C), device=cate_preds.device, dtype=torch.long)
+        one_hot.scatter_(1, cate_gts.view(-1,1), 1)
+        one_hot = one_hot[:,1:]
+
+        n = N * (C-1)
+        pt = (cate_preds * one_hot) + (1 - cate_preds) * (1 - one_hot)
+        alpha_t = alpha * one_hot + (1 - alpha) * (1 - one_hot)
+
+        loss = - alpha_t * ((1 - pt) ** gamma) * torch.log(pt + 1e-5)
+
+        return torch.sum(loss) / n
+            
 
     def MultiApply(self, func, *args, **kwargs):
         pfunc = partial(func, **kwargs) if kwargs else func
@@ -571,7 +604,7 @@ class SOLOHead(nn.Module):
     def MatrixNMS(self, sorted_ins, sorted_scores, method='gauss', gauss_sigma=0.5):
         ## TODO: finish MatrixNMS
         n = len(sorted_scores)
-        sorted_masks = sorted_masks.reshape(n, -1)
+        sorted_masks = sorted_ins.reshape(n, -1)
 
         intersection = torch.mm(sorted_masks, sorted_masks.T)
         areas = sorted_masks.sum(dim=1).expand(n, n)
