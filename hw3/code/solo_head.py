@@ -360,7 +360,7 @@ class SOLOHead(nn.Module):
                     ]   #list, len()=5,each(bz*S*S,3) for each level       
         cate_preds = torch.cat(cate_preds, 0)    #(7744,3) torch   [0~1] float32
 
-        cate_loss = self.FocalLoss(cate_preds, cate_gts)
+        cate_loss = self.FocalLoss(torch.sigmoid(cate_preds), cate_gts)
 
         total_loss=cate_loss+self.mask_loss_cfg["weight"]*mask_loss
 
@@ -378,7 +378,7 @@ class SOLOHead(nn.Module):
         intersection = torch.sum(pred_flat * gt_flat)
         pred_sum = torch.sum(pred_flat * pred_flat)
         gt_sum = torch.sum(gt_flat * gt_flat)
-        dice_loss = 1 - (2 * intersection + 1e-5) / (pred_sum + gt_sum + 1e-5)
+        dice_loss = 1 - (2 * intersection + 1e-9) / (pred_sum + gt_sum + 1e-9)
         return dice_loss
 
     # This function compute the cate loss
@@ -398,12 +398,12 @@ class SOLOHead(nn.Module):
         one_hot = one_hot[:,1:]
 
         n = N * (C-1)
-        pt = (cate_preds * one_hot) + (1 - cate_preds) * (1 - one_hot)
+        p_t = cate_preds * one_hot + (1 - cate_preds) * (1 - one_hot)
         alpha_t = alpha * one_hot + (1 - alpha) * (1 - one_hot)
 
-        loss = - alpha_t * ((1 - pt) ** gamma) * torch.log(pt + 1e-5)
+        loss = - alpha_t * ((1 - p_t) ** gamma) * torch.log(p_t + 1e-9)
 
-        return torch.sum(loss) / n
+        return torch.sum(loss) / (n + 1e-9)
             
 
     def MultiApply(self, func, *args, **kwargs):
