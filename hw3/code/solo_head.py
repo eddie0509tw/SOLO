@@ -344,10 +344,27 @@ class SOLOHead(nn.Module):
             dice_loss_list = self.MultiApply(self.DiceLoss,torch.sigmoid(input_level), target_level)
             dice_loss += sum(dice_loss_list)
 
-        dice_loss = dice_loss / n_pos
+        mask_loss = dice_loss / n_pos
 
+        #FocalLoss
+        cate_gts = [
+                    torch.cat([cate_labels_level_img.flatten() 
+                                for cate_labels_level_img in cate_labels_level])
+                    for cate_labels_level in zip(*cate_gts_list)
+                    ]
+        cate_gts = torch.cat(cate_gts)  #(7744,) torch {0,1,2,3}   int64
 
+        cate_preds = [
+                    cate_pred_level.permute(0,2,3,1).reshape(-1, self.cate_out_channels) 
+                    for cate_pred_level in cate_pred_list
+                    ]   #list, len()=5,each(bz*S*S,3) for each level       
+        cate_preds = torch.cat(cate_preds, 0)    #(7744,3) torch   [0~1] float32
 
+        cate_loss = self.FocalLoss(torch.sigmoid(cate_preds), cate_gts)
+
+        total_loss=cate_loss+self.mask_loss_cfg["weight"]*mask_loss
+
+        return cate_loss, mask_loss, total_loss
 
     # This function compute the DiceLoss
     # Input:
@@ -361,7 +378,7 @@ class SOLOHead(nn.Module):
         intersection = torch.sum(pred_flat * gt_flat)
         pred_sum = torch.sum(pred_flat * pred_flat)
         gt_sum = torch.sum(gt_flat * gt_flat)
-        dice_loss = 1 - (2 * intersection + 1e-5) / (pred_sum + gt_sum + 1e-5)
+        dice_loss = 1 - (2 * intersection + 1e-9) / (pred_sum + gt_sum + 1e-9)
         return dice_loss
 
     # This function compute the cate loss
@@ -371,7 +388,23 @@ class SOLOHead(nn.Module):
     # Output: focal_loss, scalar
     def FocalLoss(self, cate_preds, cate_gts):
         ## TODO: compute focalloss
-        pass
+        alpha = self.cate_loss_cfg['alpha']
+        gamma = self.cate_loss_cfg['gamma']
+        N=cate_preds.shape[0]
+        C=cate_preds.shape[1]+1
+
+        one_hot = torch.zeros((N,C), device=cate_preds.device, dtype=torch.long)
+        one_hot.scatter_(1, cate_gts.view(-1,1), 1)
+        one_hot = one_hot[:,1:]
+
+        n = N * (C-1)
+        p_t = cate_preds * one_hot + (1 - cate_preds) * (1 - one_hot)
+        alpha_t = alpha * one_hot + (1 - alpha) * (1 - one_hot)
+
+        loss = - alpha_t * ((1 - p_t) ** gamma) * torch.log(p_t + 1e-9)
+
+        return torch.sum(loss) / (n + 1e-9)
+            
 
     def MultiApply(self, func, *args, **kwargs):
         pfunc = partial(func, **kwargs) if kwargs else func
@@ -543,7 +576,44 @@ class SOLOHead(nn.Module):
                     ori_size):
 
         ## TODO: finish PostProcess
-        pass
+        bz = ins_pred_list[0].shape[0]# Get the batch size from the first element of the instance prediction list.
+        NMS_sorted_scores_list = []
+        NMS_sorted_cate_label_list = []
+        NMS_sorted_ins_list = []
+
+        # Get the number of Feature Pyramid Network (FPN) levels.
+        N_fpn = len(ins_pred_list)
+        assert N_fpn == len(cate_pred_list)
+
+        # Loop over each image in the batch.
+        for img_i in range(bz):
+            # re-arranged inputs
+            # (all_level_S^2, ori_H/4, ori_W/4)
+            # Concatenate instance predictions from all FPN levels for the current image.
+            ins_pred_img = torch.cat([ins_pred_list[i][img_i] for i in range(N_fpn)], dim=0)
+
+            tmp_list = []# Loop over each FPN level.
+            for fpn_i in range(N_fpn):
+                # Extract the category prediction for the current image and FPN level.
+                cate_pred = cate_pred_list[fpn_i][img_i]        # (C-1, S, S)
+                C, S_1, S_2 = cate_pred.shape# Get the shape of the category prediction.
+                # tmp_x = cate_pred.permute(C, S_1, S_2).view(C, S_1 * S_2)       # (C, S_1 * S_2)
+                # tmp_list.append(tmp_x.permute(1, 0))
+                assert cate_pred.shape[1] == cate_pred.shape[2]
+                tmp_x = cate_pred.view(C, S_1 * S_2)       # (C, S_1 * S_2)
+                tmp_list.append(tmp_x.permute(1, 0))
+            # (all_level_S^2, C-1)
+            cate_pred_img = torch.cat(tmp_list, dim=0)# Concatenate category predictions from all FPN levels for the current image.
+            assert cate_pred_img.shape[1] == 3
+
+            # Post-process the concatenated instance and category predictions for the current image.
+            NMS_sorted_scores, NMS_sorted_cate_label, NMS_sorted_ins = self.PostProcessImg(ins_pred_img, cate_pred_img, ori_size)
+            # Append the post-processed predictions for the current image to the output lists.
+            NMS_sorted_scores_list.append(NMS_sorted_scores)
+            NMS_sorted_cate_label_list.append(NMS_sorted_cate_label)
+            NMS_sorted_ins_list.append(NMS_sorted_ins)
+
+        return NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list
 
 
     # This function Postprocess on single img
@@ -560,8 +630,51 @@ class SOLOHead(nn.Module):
                        ori_size):
 
         ## TODO: PostProcess on single image.
-        pass
+        score_max,label = torch.max(cate_pred_img, dim=1) # prediction confidence and label
+        cate_indicator =  score_max > self.postprocess_cfg['cate_thresh'] # indicator of whether the prediction is confident enough
+        if(cate_indicator.sum() == 0):# If none of the pixels surpass the confidence threshold, return default values.
+          return torch.tensor([0]), torch.tensor([1]), torch.zeros((1,800,1088))
 
+        indicator_map = ins_pred_img > self.postprocess_cfg['mask_thresh'] # Generate a binary indicator mask to determine which pixels in the instance prediction surpass the mask threshold.
+        ins_pred_img = ins_pred_img * indicator_map #This effectively zeroes out values in the ins_pred_img that are below the threshold
+        
+        coeff = torch.sum(ins_pred_img, dim=(1,2))/torch.sum(indicator_map,dim=(1,2))# calculate the coefficient 
+        scores = score_max * coeff # calculate the final  S_j in the slides
+        
+         # Replace any NaN scores with 0.
+        nan_scores_idx = torch.isnan(scores)
+        scores[nan_scores_idx] = 0
+
+        # Sort the scores in descending order and select the top 'pre_NMS_num' indices.
+        _, sorted_indice = torch.sort(scores, descending=True)
+        sorted_indice = sorted_indice[0:self.postprocess_cfg['pre_NMS_num']]
+        assert len(sorted_indice) == self.postprocess_cfg['pre_NMS_num']
+        sorted_score = scores[sorted_indice]        # Note: should be of descending order
+        sorted_label = label[sorted_indice]
+        sorted_ins_bin = indicator_map[sorted_indice]       # hard binary mask
+        sorted_ins = ins_pred_img[sorted_indice]
+
+        # Apply MatrixNMS on the sorted binary masks and scores to suppress overlapping predictions.
+        scores_nms = self.MatrixNMS(sorted_ins_bin, sorted_score)
+
+        # Retain the top 'keep_instance' predictions after NMS based on their scores.
+        # print("scores_nms.shape: {}".format(scores_nms.shape))
+        # print("scores_nms.ndim: {}".format(scores_nms.ndim))
+        _, max_indice = torch.sort(scores_nms, descending=True)
+        max_indice = max_indice[0:self.postprocess_cfg['keep_instance']]
+        NMS_sorted_scores = scores_nms[max_indice]
+        # add back the background label
+        NMS_sorted_cate_label = sorted_label[max_indice] + 1
+        # resize to H_ori, W_ori
+        # (C, H, W)
+        resized_mask = torch.nn.functional.interpolate(sorted_ins[max_indice].unsqueeze(0), scale_factor=(4, 4))
+        resized_mask = resized_mask.squeeze(0)
+        NMS_sorted_ins = resized_mask
+
+        # Filter out predictions with extremely low scores.
+        high_prob_indice = NMS_sorted_scores > 0.0
+
+        return NMS_sorted_scores[high_prob_indice], NMS_sorted_cate_label[high_prob_indice], NMS_sorted_ins[high_prob_indice]
     # This function perform matrix NMS
     # Input:
         # sorted_ins: (n_act, ori_H/4, ori_W/4)
@@ -571,7 +684,7 @@ class SOLOHead(nn.Module):
     def MatrixNMS(self, sorted_ins, sorted_scores, method='gauss', gauss_sigma=0.5):
         ## TODO: finish MatrixNMS
         n = len(sorted_scores)
-        sorted_masks = sorted_masks.reshape(n, -1)
+        sorted_masks = sorted_ins.reshape(n, -1)
 
         intersection = torch.mm(sorted_masks, sorted_masks.T)
         areas = sorted_masks.sum(dim=1).expand(n, n)
