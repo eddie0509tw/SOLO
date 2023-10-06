@@ -8,7 +8,9 @@ Thumbs.db
 # Ignore log and cache files
 *.log
 __pycache__/
-
+./logs/
+*.local
+./train_check_point/
 # Ignore compiled Python files
 *.pyc
 *.pyo
@@ -22,4 +24,5 @@ test.py
 data/
 plot/
 gt_plot/
+hw3/code/try.py
 ```

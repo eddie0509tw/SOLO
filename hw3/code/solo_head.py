@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import copy
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 class SOLOHead(nn.Module):
     def __init__(self,
                  num_classes,
@@ -335,14 +336,18 @@ class SOLOHead(nn.Module):
                 zip(ins_preds_level, ins_ind_labels_level)], 0)
             for ins_preds_level, ins_ind_labels_level in 
             zip(ins_pred_list, zip(*ins_ind_gts_list))]     
-        
+
         #DiceLoss
-        dice_loss = 0
+        dice_loss = torch.zeros(1,device=ins_preds[0].device,dtype=torch.float32)
         n_pos = 0
         for input_level,target_level in zip(ins_preds, ins_gts):
-            n_pos += input_level.size(0)
+            n_pos += input_level.size()[0]
+            if input_level.size()[0] == 0:
+                continue
+
             dice_loss_list = self.MultiApply(self.DiceLoss,torch.sigmoid(input_level), target_level)
-            dice_loss += sum(dice_loss_list)
+
+            dice_loss += sum(dice_loss_list[0])
 
         mask_loss = dice_loss / n_pos
 
@@ -379,6 +384,7 @@ class SOLOHead(nn.Module):
         pred_sum = torch.sum(pred_flat * pred_flat)
         gt_sum = torch.sum(gt_flat * gt_flat)
         dice_loss = 1 - (2 * intersection + 1e-9) / (pred_sum + gt_sum + 1e-9)
+        dice_loss = dice_loss.view(1)
         return dice_loss
 
     # This function compute the cate loss
@@ -471,7 +477,8 @@ class SOLOHead(nn.Module):
         # The area of sqrt(w*h) of each object for examine which range to fit
         gt_area = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (
                 gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
-        gt_labels_raw = torch.from_numpy(gt_labels_raw).to(device=device)
+        # gt_labels_raw = torch.from_numpy(gt_labels_raw).to(device=device)
+        gt_labels_raw = gt_labels_raw.to(device) if isinstance(gt_labels_raw, torch.Tensor) else torch.from_numpy(gt_labels_raw).to(device)
     
         for (lower_bound, upper_bound), stride, featmap_size, num_grid \
                 in zip(self.scale_ranges, self.strides, featmap_sizes, self.seg_num_grids):
