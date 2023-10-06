@@ -336,17 +336,18 @@ class SOLOHead(nn.Module):
                 zip(ins_preds_level, ins_ind_labels_level)], 0)
             for ins_preds_level, ins_ind_labels_level in 
             zip(ins_pred_list, zip(*ins_ind_gts_list))]     
-        
+
         #DiceLoss
-        dice_loss = 0
+        dice_loss = torch.zeros(1,device=ins_preds[0].device,dtype=torch.float32)
         n_pos = 0
         for input_level,target_level in zip(ins_preds, ins_gts):
-            n_pos += input_level.size(0)
-            print(torch.sigmoid(input_level).shape)
-            print(target_level.shape)
+            n_pos += input_level.size()[0]
+            if input_level.size()[0] == 0:
+                continue
 
             dice_loss_list = self.MultiApply(self.DiceLoss,torch.sigmoid(input_level), target_level)
-            dice_loss += sum(dice_loss_list)
+
+            dice_loss += sum(dice_loss_list[0])
 
         mask_loss = dice_loss / n_pos
 
@@ -383,6 +384,7 @@ class SOLOHead(nn.Module):
         pred_sum = torch.sum(pred_flat * pred_flat)
         gt_sum = torch.sum(gt_flat * gt_flat)
         dice_loss = 1 - (2 * intersection + 1e-9) / (pred_sum + gt_sum + 1e-9)
+        dice_loss = dice_loss.view(1)
         return dice_loss
 
     # This function compute the cate loss
