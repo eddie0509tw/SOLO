@@ -19,6 +19,7 @@ import tqdm
 import shutil
 import gc
 from sklearn import metrics
+gc.enable()
 def plot_loss(train_losses, test_losses, name):
     plt.figure()
     plt.plot(train_losses, label='train')
@@ -31,13 +32,13 @@ def plot_loss(train_losses, test_losses, name):
     plt.close()
 
 if __name__ == '__main__':
+    load_model = False
+
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    gc.enable()
 
-    torch.multiprocessing.freeze_support()
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print("DEVICE" ,device)
     # file path and make a list
     # imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
@@ -68,7 +69,7 @@ if __name__ == '__main__':
 
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
-    batch_size = 4
+    batch_size = 2
     train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     train_loader = train_build_loader.loader()
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
@@ -85,6 +86,17 @@ if __name__ == '__main__':
     num_epochs = 36
     optimizer = optim.SGD(solo_head.parameters(), lr=0.01/16*batch_size, momentum=0.9, weight_decay=0.0001)
     scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[27,33], gamma=0.1)
+
+
+    if load_model:
+        checkpoint_path = 'train_check_point/checkpoint.pth'
+        checkpoint = torch.load(checkpoint_path)
+        solo_head.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        num_epochs = num_epochs - epoch
+
+
     train_cate_losses=[]
     train_mask_losses=[]
     train_total_losses=[]
@@ -98,6 +110,8 @@ if __name__ == '__main__':
     # tensorboard
     os.makedirs("logs", exist_ok=True)
     writer = SummaryWriter(log_dir="logs")
+
+    min_test_loss = np.inf
 
     for epoch in range(num_epochs):
         ## fill in your training code
@@ -113,9 +127,9 @@ if __name__ == '__main__':
             # label_list = [torch.tensor(x).to(device) for x in label_list]
             # mask_list = [torch.tensor(x).to(device) for x in mask_list]
             # bbox_list = [torch.tensor(x).to(device) for x in bbox_list]
-            label_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in label_list]
-            mask_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in mask_list]
-            bbox_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in bbox_list]
+            label_list = [x.to(device) for x in label_list]
+            mask_list = [x.to(device) for x in mask_list]
+            bbox_list = [x.to(device) for x in bbox_list]
 
             with torch.no_grad():
                 backout = resnet50_fpn(img)
@@ -159,13 +173,6 @@ if __name__ == '__main__':
         running_mask_loss=0.0
         running_total_loss=0.0  
 
-        path = './train_check_point/solo_epoch_'+str(epoch)
-        torch.save({
-                'epoch': epoch,
-                'model_state_dict': solo_head.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict()
-                }, path)
-
         solo_head.eval()
         test_running_cate_loss = 0.0    
         test_running_mask_loss=0.0
@@ -177,9 +184,9 @@ if __name__ == '__main__':
             for iter, data in vbar:   
                 img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
                 img = img.to(device)  
-                label_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in label_list]
-                mask_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in mask_list]
-                bbox_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in bbox_list]
+                label_list = [x.to(device) for x in label_list]
+                mask_list = [x.to(device) for x in mask_list]
+                bbox_list = [x.to(device) for x in bbox_list]
 
                 backout = resnet50_fpn(img)
                 del img
@@ -203,6 +210,16 @@ if __name__ == '__main__':
             epoch_cate_loss = test_running_cate_loss / len(test_loader)
             epoch_mask_loss = test_running_mask_loss / len(test_loader)
             epoch_total_loss = test_running_total_loss / len(test_loader)
+
+            if min_test_loss > epoch_total_loss:
+                min_test_loss = epoch_total_loss
+                path = './train_check_point/solo_epoch_'+str(epoch)+'_best'
+                torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': solo_head.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict()
+                        }, path)
+                
             print('\nEpoch:{} Avg. test loss: {:.4f}\n'.format(epoch + 1, epoch_total_loss))
             # write to summary writer
             writer.add_scalar('Loss/test/cate_loss', epoch_cate_loss, epoch)
