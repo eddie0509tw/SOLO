@@ -537,7 +537,7 @@ class SOLOHead(nn.Module):
                 r = right[n].long()
                 cate_label[t:(d + 1), l:(r + 1)] = gt_labels[n]
 
-                seg_mask = gt_masks[n].numpy()
+                seg_mask = gt_masks[n].cpu().numpy()
                 # print(np.any(seg_mask))
                 h, w = seg_mask.shape[-2:]
                 new_w, new_h = int(w * float(scale)+0.5), int(h * float(scale)+0.5)
@@ -859,8 +859,8 @@ class SOLOHead(nn.Module):
 from backbone import *
 if __name__ == '__main__':
     # file path and make a list
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    device = torch.device( "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    #device = torch.device( "cpu")
     imgs_path = '../data/hw3_mycocodata_img_comp_zlib.h5'
     masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'
     labels_path = "../data/hw3_mycocodata_labels_comp_zlib.npy"

@@ -277,10 +277,10 @@ if __name__ == '__main__':
     # print(len(train_loader))
     # print(len(test_loader))
     img, label, mask, bbox = next(iter(train_loader))
-    # print(img.shape)
-    # print(label)
-    # print(mask[0].shape,mask[1].shape)
-    # print(bbox.shape)
+    print(img[0].shape)
+    print(label)
+    print(mask[0].shape,mask[1].shape)
+    print(bbox[0].shape)
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
