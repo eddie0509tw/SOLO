@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import copy
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 class SOLOHead(nn.Module):
     def __init__(self,
                  num_classes,
@@ -341,6 +342,9 @@ class SOLOHead(nn.Module):
         n_pos = 0
         for input_level,target_level in zip(ins_preds, ins_gts):
             n_pos += input_level.size(0)
+            print(torch.sigmoid(input_level).shape)
+            print(target_level.shape)
+
             dice_loss_list = self.MultiApply(self.DiceLoss,torch.sigmoid(input_level), target_level)
             dice_loss += sum(dice_loss_list)
 
@@ -471,7 +475,8 @@ class SOLOHead(nn.Module):
         # The area of sqrt(w*h) of each object for examine which range to fit
         gt_area = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (
                 gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
-        gt_labels_raw = torch.from_numpy(gt_labels_raw).to(device=device)
+        # gt_labels_raw = torch.from_numpy(gt_labels_raw).to(device=device)
+        gt_labels_raw = gt_labels_raw.to(device) if isinstance(gt_labels_raw, torch.Tensor) else torch.from_numpy(gt_labels_raw).to(device)
     
         for (lower_bound, upper_bound), stride, featmap_size, num_grid \
                 in zip(self.scale_ranges, self.strides, featmap_sizes, self.seg_num_grids):

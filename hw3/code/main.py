@@ -24,15 +24,15 @@ gc.enable()
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # file path and make a list
-imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
-masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
-labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
-bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
+# imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
+# masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
+# labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
+# bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-#    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
-#    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
-#    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
-#    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
+imgs_path = '../data/hw3_mycocodata_img_comp_zlib.h5'
+masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'
+labels_path = '../data/hw3_mycocodata_labels_comp_zlib.npy'
+bboxes_path = '../data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
 # set up output dir (for plotGT)
 
@@ -92,11 +92,15 @@ for epoch in range(num_epochs):
     running_total_loss=0.0
     for iter, data in enumerate(train_loader, 0):
         img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
+
         img = img.to(device)      
-        label_list = [x.to(device) for x in label_list]
-        mask_list = [x.to(device) for x in mask_list]
-        bbox_list = [x.to(device) for x in bbox_list]
-               
+        # label_list = [torch.tensor(x).to(device) for x in label_list]
+        # mask_list = [torch.tensor(x).to(device) for x in mask_list]
+        # bbox_list = [torch.tensor(x).to(device) for x in bbox_list]
+        label_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in label_list]
+        mask_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in mask_list]
+        bbox_list = [x.clone().detach().to(device) if isinstance(x, torch.Tensor) else torch.tensor(x).to(device) for x in bbox_list]
+
         with torch.no_grad():
             backout = resnet50_fpn(img)
         del img
