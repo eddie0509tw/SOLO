@@ -291,9 +291,9 @@ class SOLOHead(nn.Module):
         # in inference time, upsample the pred to (ori image size/4)
         if eval == True:
             ## TODO resize ins_pred
-            ins_pred = F.interpolate(ins_pred.sigmoid(), size=upsample_shape, mode='bilinear')
+            ins_pred = F.interpolate(torch.sigmoid(ins_pred), size=upsample_shape, mode='bilinear')
 
-            cate_pred = self.points_nms(cate_pred).permute(0,2,3,1)
+            cate_pred = self.points_nms(torch.sigmoid(cate_pred)).permute(0,2,3,1)
 
         # check flag
         if eval == False:
@@ -660,7 +660,7 @@ class SOLOHead(nn.Module):
         if(cate_indicator.sum() == 0):# If none of the pixels surpass the confidence threshold, return default values.
           return torch.tensor([0]), torch.tensor([1]), torch.zeros((1,800,1088))
 
-        indicator_map = ins_pred_img > self.postprocess_cfg['mask_thresh'] # Generate a binary indicator mask to determine which pixels in the instance prediction surpass the mask threshold.
+        indicator_map = ins_pred_img > self.postprocess_cfg['ins_thresh'] # Generate a binary indicator mask to determine which pixels in the instance prediction surpass the mask threshold.
         ins_pred_img = ins_pred_img * indicator_map #This effectively zeroes out values in the ins_pred_img that are below the threshold
         
         coeff = torch.sum(ins_pred_img, dim=(1,2))/torch.sum(indicator_map,dim=(1,2))# calculate the coefficient 
@@ -676,7 +676,7 @@ class SOLOHead(nn.Module):
         assert len(sorted_indice) == self.postprocess_cfg['pre_NMS_num']
         sorted_score = scores[sorted_indice]        # Note: should be of descending order
         sorted_label = label[sorted_indice]
-        sorted_ins_bin = indicator_map[sorted_indice]       # hard binary mask
+        sorted_ins_bin = indicator_map[sorted_indice].to(torch.uint8)       # hard binary mask
         sorted_ins = ins_pred_img[sorted_indice]
 
         # Apply MatrixNMS on the sorted binary masks and scores to suppress overlapping predictions.

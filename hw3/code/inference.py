@@ -48,7 +48,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()             # set to eval mode
 
-model_path = '/Users/zy/Desktop/CIS680/hw3/code/model/best.pth'
+model_path = '/Users/eddie/CIS680/CIS680/hw3/code/model/best.pth'
 # Load the checkpoint from the specified model path
 checkpoint = torch.load(model_path, map_location=device)  # map_location ensures the model is loaded to the correct device
 
@@ -76,7 +76,7 @@ with torch.no_grad():
         #                                                                 bbox_list,
         #                                                                 label_list,
         #                                                                 mask_list)
-        print(np.any(ins_pred_list[0].cpu().numpy()))
+        #print(np.any(ins_pred_list[0].cpu().numpy()))
         NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list = solo_head.PostProcess(ins_pred_list, cate_pred_list, (img.shape[2], img.shape[3]))
         if iter<=5:
             solo_head.PlotInfer(NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list,

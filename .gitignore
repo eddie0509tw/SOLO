@@ -20,6 +20,7 @@ try.py
 test.py
 dataset2.py
 *.zip
+model/
 
 # Ignore virtual environment folders (e.g., for Python virtual environments)
 *.png
