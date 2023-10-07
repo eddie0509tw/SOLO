@@ -195,6 +195,11 @@ class SOLOHead(nn.Module):
         cate_pred_list, ins_pred_list =  self.MultiApply(self.forward_single_level, new_fpn_list,
                                                        num_of_levels,
                                                        eval=eval, upsample_shape=quart_shape)
+        # print(ins_pred_list[0].shape)
+        # print(ins_pred_list[1].shape)
+        # print(ins_pred_list[2].shape)
+        # print(ins_pred_list[3].shape)
+        # print(ins_pred_list[4].shape)
         # assert cate_pred_list[1].shape[1] == self.cate_out_channels
         assert ins_pred_list[1].shape[1] == self.seg_num_grids[1]**2
         assert cate_pred_list[1].shape[2] == self.seg_num_grids[1]
@@ -596,10 +601,16 @@ class SOLOHead(nn.Module):
 
         # Get the number of Feature Pyramid Network (FPN) levels.
         N_fpn = len(ins_pred_list)
+        # print(N_fpn)
         assert N_fpn == len(cate_pred_list)
 
         # Loop over each image in the batch.
         for img_i in range(bz):
+            # print(ins_pred_list[0][img_i].shape)
+            # print(ins_pred_list[1][img_i].shape)
+            # print(ins_pred_list[2][img_i].shape)
+            # print(ins_pred_list[3][img_i].shape)
+            # print(ins_pred_list[4][img_i].shape)
             # re-arranged inputs
             # (all_level_S^2, ori_H/4, ori_W/4)
             # Concatenate instance predictions from all FPN levels for the current image.
@@ -609,12 +620,13 @@ class SOLOHead(nn.Module):
             for fpn_i in range(N_fpn):
                 # Extract the category prediction for the current image and FPN level.
                 cate_pred = cate_pred_list[fpn_i][img_i]        # (C-1, S, S)
-                C, S_1, S_2 = cate_pred.shape# Get the shape of the category prediction.
+                S_1, S_2, C = cate_pred.shape# Get the shape of the category prediction.
                 # tmp_x = cate_pred.permute(C, S_1, S_2).view(C, S_1 * S_2)       # (C, S_1 * S_2)
                 # tmp_list.append(tmp_x.permute(1, 0))
-                assert cate_pred.shape[1] == cate_pred.shape[2]
-                tmp_x = cate_pred.view(C, S_1 * S_2)       # (C, S_1 * S_2)
-                tmp_list.append(tmp_x.permute(1, 0))
+                print(cate_pred.shape)
+                assert cate_pred.shape[1] == cate_pred.shape[0]
+                tmp_x = cate_pred.view(S_1 * S_2,C)       
+                tmp_list.append(tmp_x)
             # (all_level_S^2, C-1)
             cate_pred_img = torch.cat(tmp_list, dim=0)# Concatenate category predictions from all FPN levels for the current image.
             assert cate_pred_img.shape[1] == 3
@@ -814,6 +826,8 @@ class SOLOHead(nn.Module):
                   img,
                   iter_ind):
         ## TODO: Plot predictions
+
+        # convert color_list to RGB ones
         rgb_color_list = []
         for color_str in color_list:
             color_map = cm.ScalarMappable(cmap=color_str)
@@ -832,8 +846,8 @@ class SOLOHead(nn.Module):
             ax.imshow(img_vis)
             plt.show()
             os.makedirs("infer_result", exist_ok=True)
-            saving_file = "../infer_plot/batch_{}_img_{}_ori.png".format(iter_ind, img_i)
-            plt.savefig(saving_file)
+            saving_file = "infer_result/batch_{}_img_{}_ori.png".format(iter_ind, img_i)
+            fig.savefig(saving_file)
 
             # overlap all instance's mask to mask_vis (with color)
             mask_vis = np.zeros_like(img_vis)               # (H, W, 3)
@@ -841,7 +855,7 @@ class SOLOHead(nn.Module):
                 obj_label = cate_label[ins_id]
                 ins_bin = (ins[ins_id] >= self.postprocess_cfg['ins_thresh']) * 1.0
                 obj_mask = ins_bin.cpu().numpy()        # (H, W)
-
+                print(np.any(obj_mask))
                 # assign color
                 # Note: the object label from prediction here includes background.
                 rgb_color = rgb_color_list[obj_label - 1]  # (3,)
@@ -859,8 +873,9 @@ class SOLOHead(nn.Module):
 
             # save the file
             os.makedirs("infer_result", exist_ok=True)
-            saving_file = "../infer_plot/batch_{}_img_{}.png".format(iter_ind, img_i)
-            plt.savefig(saving_file)
+            saving_file = "infer_result/batch_{}_img_{}.png".format(iter_ind, img_i)
+            fig.savefig(saving_file)
+
 
 from backbone import *
 if __name__ == '__main__':
