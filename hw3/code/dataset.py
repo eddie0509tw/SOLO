@@ -17,12 +17,14 @@ import os
 
 
 class BuildDataset(torch.utils.data.Dataset):
-    def __init__(self, path):
+    def __init__(self, path, augmentation=True):
         # TODO: load dataset, make mask list
         self.imgs_path = path[0]
         self.masks_path = path[1]
         self.labels_path = path[2]
         self.bboxes_path = path[3]
+
+        self.augmentation = augmentation
 
         # self.imgs_data = self.load_h5py(self.imgs_path)
         # self.masks_data = self.load_h5py(self.masks_path)
@@ -64,12 +66,26 @@ class BuildDataset(torch.utils.data.Dataset):
         #print("original",bbox)
 
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
+        if self.augmentation and (np.random.rand(1).item() > 0.5):
+            # perform horizontally flipping (data augmentation)
+            assert transed_img.ndim == 3
+            assert transed_mask.ndim == 3
+            transed_img = torch.flip(transed_img, dims=[2])
+            transed_mask = torch.flip(transed_mask, dims=[2])
+            # bbox transform
+            h, w  = transed_img.size()[-2:]
+            transed_bbox_new = transed_bbox.clone()
+            transed_bbox_new[:, 0] = w - transed_bbox[:, 2]
+            transed_bbox_new[:, 2] = w - transed_bbox[:, 0]
+            transed_bbox = transed_bbox_new
+
+            assert torch.all(transed_bbox[:, 0] < transed_bbox[:, 2])
 
         # check flag
         assert transed_img.shape == (3, 800, 1088)
         assert transed_bbox.shape[0] == transed_mask.shape[0]
         return transed_img, label, transed_mask, transed_bbox
-    
+
     def __len__(self):
         return len(self.labels_data)
 
@@ -302,7 +318,7 @@ if __name__ == '__main__':
     print(img[0].shape)
     print(label)
     print(mask[0].shape,mask[1].shape)
-    print(bbox[0].shape)
+    print(bbox)
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

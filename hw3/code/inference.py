@@ -48,7 +48,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()             # set to eval mode
 
-model_path = '/Users/eddie/CIS680/CIS680/hw3/code/model/best.pth'
+model_path = 'C:\\Users\\eddie\\CIS680\\hw3\\code\\train_check_point\\new_best.pth'
 # Load the checkpoint from the specified model path
 checkpoint = torch.load(model_path, map_location=device)  # map_location ensures the model is loaded to the correct device
 

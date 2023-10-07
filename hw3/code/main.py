@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from sklearn.model_selection import train_test_split
-from solo_head import *
+from solo_head2 import *
 from backbone import *
 from dataset import *
 import torch.optim as optim
