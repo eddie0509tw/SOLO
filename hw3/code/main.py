@@ -41,10 +41,6 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print("DEVICE" ,device)
     # file path and make a list
-    # imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
-    # masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
-    # labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
-    # bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
     imgs_path = '../data/hw3_mycocodata_img_comp_zlib.h5'
     masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'

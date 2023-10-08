@@ -60,10 +60,6 @@ class BuildDataset(torch.utils.data.Dataset):
 
         img = torch.tensor(img, dtype=torch.float)
         mask = torch.tensor(mask, dtype=torch.float)
-        # print(img.shape)
-        #print(mask.shape)
-        # print(len(label))
-        #print("original",bbox)
 
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
         if self.augmentation and (np.random.rand(1).item() > 0.5):
@@ -97,10 +93,7 @@ class BuildDataset(torch.utils.data.Dataset):
         # bbox: n_box*4
     def pre_process_batch(self, img, mask, bbox):
         # The input mask has shape (n_obj, 800, 1088), so we need to process each object's mask separately.
-        # img_ = Image.fromarray((img).astype('uint8').transpose(1, 2, 0))
-        # mask_ = [Image.fromarray(m.astype('uint8')) for m in mask]  # process each object's mask separately.
-        # mask_ = torch.stack([self.transform_mask(m) for m in mask_])
-        # img_ = self.transform_img(img_)
+
         img = self.torch_interpolate(img, 800, 1066)  # (3, 800, 1066)
         img = transforms.functional.normalize(img, mean=[0.485, 0.456, 0.406],
                                                                   std=[0.229, 0.224, 0.225])
@@ -112,10 +105,7 @@ class BuildDataset(torch.utils.data.Dataset):
         bbox_ = torch.tensor(bbox)
         bbox_ = bbox_ * torch.tensor([1066 / 400, 800 / 300,  1066 / 400, 800 / 300]).reshape(1, 4) + torch.tensor(
             [11, 0,11, 0]).reshape(1, 4)
-        # bbox_ = torch.tensor(bbox_)
-        #print("after",bbox_)
-        # print(mask.shape)
-        # print(bbox_.shape[0])
+
         # Check flag
         assert img.shape == (3, 800, 1088)
         assert bbox_.shape[0] == mask.shape[0]
@@ -155,35 +145,35 @@ class BuildDataset(torch.utils.data.Dataset):
         tensor_out = tensor_out.squeeze(0)
         return tensor_out
 
-    @staticmethod
-    def unnormalize_bbox(bbox):
-        """
-        Unnormalize one bbox annotation. from 0-1 => 0 - 1088
-        x_res = x * 1066 + 11
-        y_res = x * 800
-        :param bbox: the normalized bounding box (4,)
-        :return: the absolute bounding box location (4,)
-        """
-        bbox_res = torch.tensor(bbox, dtype=torch.float)
-        bbox_res[0] = bbox[0] * 1066 + 11
-        bbox_res[1] = bbox[1] * 800
-        bbox_res[2] = bbox[2] * 1066 + 11
-        bbox_res[3] = bbox[3] * 800
-        return bbox_res
 
-    @staticmethod
-    def unnormalize_img(img):
-        """
-        Unnormalize image to [0, 1]
-        :param img:
-        :return:
-        """
-        assert img.shape == (3, 800, 1088)
-        img = transforms.functional.normalize(img, mean=[0.0, 0.0, 0.0],
-                                                          std=[1.0/0.229, 1.0/0.224, 1.0/0.225])
-        img = transforms.functional.normalize(img, mean=[-0.485, -0.456, -0.406],
-                                                          std=[1.0, 1.0, 1.0])
-        return img
+def unnormalize_bbox(bbox):
+    """
+    Unnormalize one bbox annotation. from 0-1 => 0 - 1088
+    x_res = x * 1066 + 11
+    y_res = x * 800
+    :param bbox: the normalized bounding box (4,)
+    :return: the absolute bounding box location (4,)
+    """
+    bbox_res = torch.tensor(bbox, dtype=torch.float)
+    bbox_res[0] = bbox[0] * 1066 + 11
+    bbox_res[1] = bbox[1] * 800
+    bbox_res[2] = bbox[2] * 1066 + 11
+    bbox_res[3] = bbox[3] * 800
+    return bbox_res
+
+
+def unnormalize_img(img):
+    """
+    Unnormalize image to [0, 1]
+    :param img:
+    :return:
+    """
+    assert img.shape == (img.size()[0],3, 800, 1088)
+    img = transforms.functional.normalize(img, mean=[0.0, 0.0, 0.0],
+                                                        std=[1.0/0.229, 1.0/0.224, 1.0/0.225])
+    img = transforms.functional.normalize(img, mean=[-0.485, -0.456, -0.406],
+                                                        std=[1.0, 1.0, 1.0])
+    return img
 class BuildDataLoader(torch.utils.data.DataLoader):
     def __init__(self, dataset, batch_size, shuffle, num_workers, pin_memory=True):
         self.dataset = dataset
@@ -204,16 +194,11 @@ class BuildDataLoader(torch.utils.data.DataLoader):
         imgs = torch.stack(imgs, dim=0)
         label_list = list(labels)
         transed_mask_list = []
-        # for mask in masks:
-        #     # Adjust the shape of each mask tensor to be (n_obj, 800, 1088)
-        #     # The exact adjustment will depend on your initial mask shape
-        #     transed_mask_list.append(mask)
+
         transed_mask_list = list(masks)
-        # transed_mask_list = [mask.clone() for mask in masks]
-        # trans_bbox_list = [bbox.clone() for bbox in bboxes]
+
         trans_bbox_list = list(bboxes)
        
-        # return imgs, label_list, masks, bboxes
         return imgs, label_list, transed_mask_list,trans_bbox_list
 
     def loader(self):
@@ -223,10 +208,8 @@ class BuildDataLoader(torch.utils.data.DataLoader):
 
 def plot_and_save_batch(batch, save_dir):
     img, label, mask, bbox = batch
-    # print(bbox)
-    print(label)
-    # print(len(mask))
-    print(mask[0].shape,mask[1].shape)
+    img = unnormalize_img(img)
+
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
@@ -236,7 +219,7 @@ def plot_and_save_batch(batch, save_dir):
     for i in range(batch_size):
         fig, ax = plt.subplots(1, figsize=(12, 9))
         
-        img_data = img[i].cpu().numpy().transpose(1, 2, 0) * 255
+        img_data = img[i].cpu().numpy().transpose(1, 2, 0) 
         img_data = np.clip(img_data, 0, 1)
         ax.imshow(img_data)
 
@@ -297,28 +280,23 @@ if __name__ == '__main__':
     # build the dataloader
     # set 20% of the dataset as the training data
     full_size = len(dataset)
-    #print(full_size)
+
     train_size = int(full_size * 0.8)
     test_size = full_size - train_size
     # random split the dataset into training and testset
     # set seed
-    torch.random.manual_seed(1)
+    torch.random.manual_seed(2)
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     # push the randomized training data into the dataloader
-    #print(train_dataset[11])
     batch_size = 10
     train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     train_loader = train_build_loader.loader()
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     test_loader = test_build_loader.loader()
     print("Finish building dataloader")
-    print(len(train_loader))
-    print(len(test_loader))
+
     img, label, mask, bbox = next(iter(train_loader))
-    print(img[0].shape)
-    print(label)
-    print(mask[0].shape,mask[1].shape)
-    print(bbox)
+
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
     # loop the image
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
